@@ -16,6 +16,7 @@ export class Interact {
     addEventListener('keydown', (e) => {
       if (e.code !== 'KeyE' || e.ctrlKey || game.ui.isTyping() || game.build.usesRotateKeys()) return;
       if (game.player.freeCam) return;
+      if (game.vehicles.driving) { e.preventDefault(); game.vehicles.exit(); return; }
       if (this.target) { e.preventDefault(); this.use(this.target); }
     });
   }
@@ -49,6 +50,14 @@ export class Interact {
         const s = score(at, 2);
         if (s !== null) out.push({ kind: 'crop', rec: r, s, label: `Harvest the ${it.crop.name}` });
       }
+    }
+    // vehicles: walk up to the side and get in (boats from the shore or a pier)
+    for (const v of g.vehicles.items.values()) {
+      const reach = v.type === 'bike' ? 2 : v.type === 'boat' ? 4.2 : 3.2;
+      const s = score(new THREE.Vector3(v.pose.x, v.pose.y + 0.5, v.pose.z), reach);
+      if (s === null) continue;
+      const busy = g.vehicles.driverOf(v) !== null;
+      out.push({ kind: 'vehicle', v, s: s + 0.1, label: busy ? `Someone is using this ${v.T.label}` : `${v.T.verb} the ${v.T.label}` });
     }
     if (g.town) for (const ia of g.town.interactables) {
       const s = score(ia.pos, ia.kind === 'npc' ? 2.6 : 2.4);
@@ -111,6 +120,7 @@ export class Interact {
         break;
       }
       case 'board': g.ui.openNotices(); break;
+      case 'vehicle': g.vehicles.enter(t.v); break;
       case 'npc': {
         const line = g.town.talk(t.person);
         g.ui.npcDialog(t.person, line);
@@ -142,6 +152,7 @@ export class Interact {
   // someone else used something
   onAction(a) {
     const g = this.g;
+    if (a.k === 'veh') { g.vehicles.onAction(a); return; }
     if (a.k === 'door') {
       const r = g.objects.get(a.id);
       if (r) { const n = { ...r, x: a.x, z: a.z, ry: a.ry, open: a.open || undefined }; delete n._pool; g.objects.set(n); g.sound && g.player.pos.distanceTo(new THREE.Vector3(r.x, r.y, r.z)) < 20 && g.sound.door(a.open); }
@@ -154,11 +165,12 @@ export class Interact {
       this.timer = 0.15;
       const g = this.g;
       let best = null;
-      if (!g.player.freeCam && g.player.mode !== 'sit' && g.build.mode !== 'house') {
+      if (!g.player.freeCam && g.player.mode !== 'sit' && !g.vehicles.driving && g.build.mode !== 'house') {
         for (const c of this.candidates()) if (!best || c.s < best.s) best = c;
       }
       this.target = best;
-      if (g.player.mode === 'sit') this.show('Move to stand up');
+      if (g.vehicles.driving) this.show(`Get out of the ${g.vehicles.driving.T.label}`);
+      else if (g.player.mode === 'sit') this.show('Move to stand up');
       else this.show(best ? best.label : '');
     }
   }

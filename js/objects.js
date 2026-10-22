@@ -152,6 +152,8 @@ export class WorldObjects {
     if (it.crop) this.crops.add(rec.id);
     if (it.kind === 'tree') {
       this.trees.add(rec.id, it.species, rec.x, rec.y, rec.z, rec.ry, rec.s[0], rec.sd || 0);
+    } else if (it.kind === 'vehicle') {
+      if (this.vehicles) this.vehicles.add(rec);
     } else {
       // a ripe crop is drawn with its ripe model; growing ones are their sprout scaled up over time
       const gr = it.crop ? this.growth(rec) : 1;
@@ -175,6 +177,7 @@ export class WorldObjects {
     const it = ITEMS[rec.t];
     if (rec.g && this.groups.has(rec.g)) { const g = this.groups.get(rec.g); g.delete(id); if (!g.size) this.groups.delete(rec.g); }
     if (it && it.kind === 'tree') this.trees.remove(id);
+    else if (it && it.kind === 'vehicle') { if (this.vehicles) this.vehicles.remove(id); }
     else if (rec._pool) rec._pool.remove(id);
     this.lights.delete(id);
     this.crops.delete(id);
@@ -261,7 +264,7 @@ export class WorldObjects {
     const out = [];
     for (const id of this.near(x, z, r)) {
       const rec = this.recs.get(id);
-      if (!rec) continue;
+      if (!rec || rec._driving) continue;   // a vehicle being driven is somewhere else right now
       const it = ITEMS[rec.t];
       if (!it || it.kind === 'tree') continue;
       for (const col of itemColliders(it)) out.push({ rec, col });
@@ -293,7 +296,7 @@ export class WorldObjects {
         if (seen.has(id)) continue;
         seen.add(id);
         const rec = this.recs.get(id);
-        if (!rec || rec.t === 'cut' || ITEMS[rec.t].kind === 'tree') continue;
+        if (!rec || rec.t === 'cut' || rec._driving || ITEMS[rec.t].kind === 'tree') continue;
         inv.copy(this.matrixOf(rec)).invert();
         lr.copy(ray).applyMatrix4(inv);
         this.localBox(rec, box).expandByScalar(0.02);

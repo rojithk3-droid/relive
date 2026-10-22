@@ -86,6 +86,7 @@ export class Avatar {
     this.emoteT = 0;
     this.emoteW = 0;
     this.sitW = 0;
+    this.driveW = 0;
     this.heading = 0;
     this.tag = document.createElement('div');
     this.tag.className = 'nametag';
@@ -193,16 +194,21 @@ export class Avatar {
     this.emoteT += dt;
     const emoting = this.emote && !moving;
     this.emoteW += ((emoting ? 1 : 0) - this.emoteW) * Math.min(1, dt * 6);
-    const sitting = mode === 'sit' || (this.emote === 'sit' && !moving);
+    const riding = mode === 'ride';
+    const sitting = mode === 'sit' || mode === 'drive' || riding || (this.emote === 'sit' && !moving);
     this.sitW += ((sitting ? 1 : 0) - this.sitW) * Math.min(1, dt * 6);
+    this.driveW += ((mode === 'drive' || riding ? 1 : 0) - this.driveW) * Math.min(1, dt * 6);
+    this.riding = riding;
+    // pedal cadence follows the bicycle's speed (passed in as `speed` by the vehicle system)
+    if (riding) this.pedal = (this.pedal || 0) + dt * Math.min(9, this.rideSpeed || 0) * 1.6;
     this.model.position.y = -0.48 * this.sitW;
-    if (this.emoteW > 0.01 || this.sitW > 0.01) this.pose(this.emoteW, this.sitW);
+    if (this.emoteW > 0.01 || this.sitW > 0.01) this.pose(this.emoteW, this.sitW, this.driveW);
     // swimming: lean forward
     this.model.rotation.x = mode === 'swim' ? 0.9 : mode === 'fly' && moving ? 0.5 : 0;
     this.placeAccessories();
   }
 
-  pose(w, sw) {
+  pose(w, sw, dw = 0) {
     const B = this.bones, t = this.emoteT;
     const fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(UP, this.heading);
     const right = new THREE.Vector3().crossVectors(fwd, UP).normalize();
@@ -213,6 +219,23 @@ export class Avatar {
         aim(B[s + 'UpLeg'], B[s + 'Leg'], fwd.clone().addScaledVector(UP, -0.05).addScaledVector(right, s === 'Left' ? -0.08 : 0.08), sw);
         aim(B[s + 'Leg'], B[s + 'Foot'], UP.clone().negate().addScaledVector(fwd, 0.15), sw);
       }
+    }
+    if (dw > 0.01 && this.riding) {
+      // on a bicycle: thighs angled down to the pedals, the two legs half a turn apart
+      for (const [s, ph] of [['Left', 0], ['Right', Math.PI]]) {
+        const a = (this.pedal || 0) + ph;
+        aim(B[s + 'UpLeg'], B[s + 'Leg'], fwd.clone().multiplyScalar(0.75 + Math.sin(a) * 0.25).addScaledVector(UP, -0.75 + Math.cos(a) * 0.2).addScaledVector(right, s === 'Left' ? -0.06 : 0.06), dw);
+        aim(B[s + 'Leg'], B[s + 'Foot'], UP.clone().negate().addScaledVector(fwd, 0.1 + Math.sin(a) * 0.25), dw);
+      }
+    }
+    if (dw > 0.01) {
+      // hands forward on the wheel / handlebars
+      for (const s of ['Left', 'Right']) {
+        const side = right.clone().multiplyScalar(s === 'Left' ? -0.25 : 0.25);
+        aim(B[s + 'Arm'], B[s + 'ForeArm'], fwd.clone().addScaledVector(UP, -0.45).add(side), dw);
+        aim(B[s + 'ForeArm'], B[s + 'Hand'], fwd.clone().addScaledVector(UP, -0.1), dw);
+      }
+      return;
     }
     if (e === 'wave') {
       aim(B.RightArm, B.RightForeArm, right.clone().multiplyScalar(0.6).add(UP).addScaledVector(fwd, 0.2), w);

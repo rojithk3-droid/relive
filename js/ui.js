@@ -468,6 +468,8 @@ export class UI {
   // ---------------------------------------------------------------- per frame
   update(dt) {
     if (!this.g.ready) return;
+    const dv = this.g.vehicles.driving;
+    if (dv) { const kmh = String(Math.round(Math.abs(dv.speed) * 3.6)); const el = $('#speedo b'); if (el.textContent !== kmh) el.textContent = kmh; }
     this.miniT = (this.miniT || 0) + dt;
     if (this.miniT > (this.g.q.shadowEvery > 1 ? 0.5 : 0.25)) {
       this.miniT = 0;
@@ -494,6 +496,7 @@ export class UI {
   }
 
   setFreeCam(on) { document.body.classList.toggle('freecam', on); }
+  setDriving(v) { document.body.classList.toggle('driving', !!v); }
 
   // ---------------------------------------------------------------- notice board
   openNotices() {

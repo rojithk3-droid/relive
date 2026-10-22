@@ -311,6 +311,8 @@ export class BuildTools {
     const pl = this.placementFor(ray, it, this.ry, this.scale);
     if (!pl) return;
     if (!this.g.canBuild(pl.x, pl.z)) { this.deny(pl.x, pl.z); return; }
+    if (it.vtype === 'boat' && this.g.terrain.heightAt(pl.x, pl.z) > SEA - 0.7) { this.g.ui.toast('Boats go on deep enough water - point at the sea or the lake', 'warn'); return; }
+    if (it.kind === 'vehicle' && it.vtype !== 'boat' && pl.y < SEA - 0.3) { this.g.ui.toast('That needs dry land', 'warn'); return; }
     const rec = { id: this.g.newId(), t: it.id, x: pl.x, y: pl.y, z: pl.z, ry: pl.ry ?? this.ry, s: [...this.scale] };
     if (it.kind === 'part') rec.m = this.mat || it.mat;
     if (this.tint) rec.c = this.tint;
@@ -384,6 +386,8 @@ export class BuildTools {
       loadModel(it.model).then((md) => { if (md) for (const p of md.parts) { const m = new THREE.Mesh(p.geometry, p.material); m.castShadow = true; g.add(m); } });
     } else if (it.kind === 'tree') {
       g.add(this.g.trees.makePreview(it.species, rec.sd || 0));
+    } else if (it.kind === 'vehicle') {
+      g.add(this.g.vehicles.makePreview(it.vtype));
     }
     return g;
   }
@@ -934,6 +938,8 @@ export class BuildTools {
     const { scene, cam, rt, buf, canvas } = this.thumbRig;
     const id = this.thumbQueue.shift();
     const it = ITEMS[id];
+    // the car model may still be downloading: try its thumbnail again later
+    if (it.vtype === 'car' && !this.g.vehicles.carProto) { this.thumbQueue.push(id); return; }
     const obj = this.ghostObject({ t: id, m: it.mat, sd: 0 });
     scene.add(obj);
     const box = new THREE.Box3().setFromObject(obj);

@@ -117,6 +117,41 @@ export class Sound {
     this.noiseBurst(0.5, [['lowpass', 900, 0.6]], 0.18 * strength, 0, delay);
   }
   splash() { if (this.ctx) this.noiseBurst(0.4, [['bandpass', 900, 0.5]], 0.12); }
+  thud(k) { if (!this.ctx) return; this.noiseBurst(0.3, [['lowpass', 400, 0.8]], 0.25 * Math.min(1, k + 0.3)); this.tone(70, 0.25, 0.12 * Math.min(1, k + 0.3), 'sine'); }
+
+  // Engine note while driving: a sawtooth through a low-pass, pitch and brightness rising with speed;
+  // the boat adds water rush, the bicycle only freewheel ticks. kind null = engine off.
+  engine(kind, level) {
+    if (!this.ctx) return;
+    const c = this.ctx;
+    if (!this.eng) {
+      const o = c.createOscillator(); o.type = 'sawtooth';
+      const o2 = c.createOscillator(); o2.type = 'square';
+      const f = c.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 2;
+      const g = c.createGain(); g.gain.value = 0;
+      o.connect(f); o2.connect(f); f.connect(g); g.connect(this.master);
+      o.start(); o2.start();
+      const wsrc = c.createBufferSource(); wsrc.buffer = this.white; wsrc.loop = true; wsrc.start();
+      const wf = c.createBiquadFilter(); wf.type = 'bandpass'; wf.frequency.value = 700; wf.Q.value = 0.5;
+      const wg = c.createGain(); wg.gain.value = 0;
+      wsrc.connect(wf); wf.connect(wg); wg.connect(this.master);
+      this.eng = { o, o2, f, g, wg };
+    }
+    const e = this.eng, t = c.currentTime;
+    const motor = kind === 'car' || kind === 'boat';
+    const target = motor ? (kind === 'car' ? 0.05 + level * 0.07 : 0.04 + level * 0.05) : 0;
+    e.g.gain.setTargetAtTime(target, t, 0.08);
+    const base = kind === 'boat' ? 38 : 46;
+    e.o.frequency.setTargetAtTime(base + level * (kind === 'boat' ? 70 : 150), t, 0.1);
+    e.o2.frequency.setTargetAtTime((base + level * (kind === 'boat' ? 70 : 150)) * 0.5, t, 0.1);
+    e.f.frequency.setTargetAtTime(300 + level * 1600, t, 0.1);
+    e.wg.gain.setTargetAtTime(kind === 'boat' ? 0.04 + level * 0.1 : kind === 'bike' ? level * 0.03 : 0, t, 0.15);
+    // freewheel clicks for the bike
+    if (kind === 'bike' && level > 0.05) {
+      this.tickT = (this.tickT || 0) - 1 / 60;
+      if (this.tickT <= 0) { this.tickT = 0.25 - level * 0.18; this.noiseBurst(0.012, [['highpass', 5000]], 0.01); }
+    }
+  }
   click() { if (this.ctx) this.tone(1800, 0.03, 0.04, 'square'); }
   door(open) { if (!this.ctx) return; this.tone(open ? 180 : 140, 0.25, 0.06, 'sawtooth', 0, open ? 120 : 90); this.noiseBurst(0.08, [['bandpass', 500, 1]], 0.05, 0, open ? 0.18 : 0.05); }
   harvest() { if (!this.ctx) return; this.tone(660, 0.1, 0.05, 'sine'); this.tone(990, 0.15, 0.05, 'sine', 0.08); }

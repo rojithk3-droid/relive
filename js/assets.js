@@ -212,6 +212,23 @@ export function loadBody(kind) {
   return p;
 }
 
+// ------------------------------------------------------------------ the sports car (three.js example, Draco-compressed)
+let carPromise = null;
+export function loadCar() {
+  if (carPromise) return carPromise;
+  carPromise = Promise.all([import('three/addons/loaders/DRACOLoader.js')]).then(([{ DRACOLoader }]) => new Promise((resolve) => {
+    const draco = new DRACOLoader();
+    draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/gltf/');
+    const loader = new GLTFLoader();
+    loader.setDRACOLoader(draco);
+    loader.load(THREE_MODEL('ferrari.glb'), (g) => {
+      g.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      resolve(g.scene);
+    }, undefined, () => resolve(null));
+  }));
+  return carPromise;
+}
+
 // ------------------------------------------------------------------ animals (three.js example models, morph-target animated)
 const animalCache = new Map();
 export function loadAnimal(file) {

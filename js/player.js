@@ -43,7 +43,7 @@ export class Player {
     addEventListener('keydown', (e) => {
       if (!this.inputEnabled || e.target.closest('input, textarea, select')) return;
       this.keys.add(e.code);
-      if (e.code === 'KeyF' && !e.ctrlKey && !this.freeCam) { this.flying = !this.flying; this.vel.y = 0; this.onToggleFly && this.onToggleFly(this.flying); }
+      if (e.code === 'KeyF' && !e.ctrlKey && !this.freeCam && !this.vehicle) { this.flying = !this.flying; this.vel.y = 0; this.onToggleFly && this.onToggleFly(this.flying); }
       if (e.code === 'KeyV' && !e.ctrlKey) this.setFreeCam(!this.freeCam);
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -200,6 +200,8 @@ export class Player {
     dt = Math.min(dt, 0.05);
     // with the free camera on, the keys drive the camera and the avatar just stands where it is
     if (this.freeCam) { this.updateFreeCam(dt, inputActive); inputActive = false; }
+    // in a vehicle: the vehicle system moves us (and reads the keys itself)
+    if (this.vehicle) { this.vel.set(0, 0, 0); this.speed = 0; this.mode = this.vehicle.type === 'bike' ? 'ride' : 'drive'; this.onGround = true; this.flying = false; return; }
     if (this.seat) {
       const moving = inputActive && this.inputEnabled && this.key('KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space');
       if (!moving) { this.pos.set(this.seat.x, this.seat.y, this.seat.z); this.heading = this.seat.heading; this.speed = 0; this.mode = 'sit'; return; }
@@ -318,7 +320,20 @@ export class Player {
 
   updateCamera(dt) {
     const eye = this.camDist < 1 ? 1.62 : 1.55;
-    const target = this.freeCam ? this.camTarget.copy(this.focus) : this.camTarget.set(this.pos.x, this.pos.y + eye, this.pos.z);
+    const veh = this.vehicle && !this.freeCam ? this.vehicle : null;
+    const target = this.freeCam ? this.camTarget.copy(this.focus)
+      : veh ? this.camTarget.set(veh.pose.x, veh.pose.y + veh.T.camH, veh.pose.z)
+      : this.camTarget.set(this.pos.x, this.pos.y + eye, this.pos.z);
+    // chase camera: swing in behind the vehicle unless the player is looking around with the mouse
+    if (veh) {
+      if (this.dragging) this.lastLook = performance.now();
+      if (performance.now() - (this.lastLook || 0) > 1500 && Math.abs(veh.speed) > 0.5) {
+        const behind = veh.pose.h + (veh.speed < -0.5 ? Math.PI : 0);
+        const d = Math.atan2(Math.sin(behind - this.camYaw), Math.cos(behind - this.camYaw));
+        this.camYaw += d * Math.min(1, dt * 2.5);
+        this.camPitch += (-0.18 - this.camPitch) * Math.min(1, dt * 1.5);
+      }
+    }
     const cp = Math.cos(this.camPitch);
     const dir = new THREE.Vector3(Math.sin(this.camYaw) * cp, -Math.sin(this.camPitch), Math.cos(this.camYaw) * cp);
     let dist = this.camDist;

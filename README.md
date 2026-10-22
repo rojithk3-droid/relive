@@ -38,6 +38,7 @@ a separate person.
 | Placing | `R` turn 90°, `Q`/`E` turn 15°, `[` `]` lift (Shift: 1 m), `G` grid on/off, `Esc` cancel |
 | Editing | click to select, `G` move, `Del` delete, `Ctrl+D` copy, `Ctrl+Z` undo |
 | Social | the ⌄ button folds the chat away to a round chat button (with an unread count); click it or press `Enter` to open it. `Enter` chat, `/w name msg`, `/near msg`, `/me …`, `/wave /cheer /clap /point /dance /sit`, `/tp name`, `/home` |
+| Drive | walk up to a car, bicycle or boat and press `E`. `W`/`S` speed and reverse, `A`/`D` steer, `Space` brake, `E` get out. The camera follows behind you (drag to look around). |
 | Use | `E` near something: sit on chairs/sofas/benches/beds, open and close doors, switch lamps, harvest crops, read the notice board, talk to townspeople (move to stand up) |
 | Other | `M` map (click to teleport), `P` people, `H` help, `K` photo mode, `Tab` hide panel, `/tour`, `/town`, `/weather` |
 
@@ -75,6 +76,12 @@ a separate person.
   8 minutes and can be harvested again and again.
 - **Faster building:** catalogue search, favourites (☆), drag to draw a whole run of walls or fences,
   Shift+click to select several pieces, and blueprints you can save, re-place and share as a code.
+- **Vehicles:** a sports car (up to about 110 km/h), bicycles (with pedalling riders that lean into turns)
+  and motor boats that bob on the waves. Cars and bikes follow the ground, climb roads and ramps, and bump
+  off walls, trees and other vehicles; boats only go where the water is deep enough. The town has a car
+  park, a bike rack by the arch and a boat dock on the east coast, and anyone can borrow those. Place your
+  own from Build > Vehicles (colour tint works). Other players see you drive live. Your own vehicles stay
+  where you park them; borrowed town ones go back to their spots when the world reloads.
 - **Avatars and social:** hats, glasses and height, photo mode (`K`) that saves a clean PNG, and proximity
   voice chat (mic button) that fades with distance and comes from the speaker's direction.
 

@@ -17,6 +17,7 @@ export const CATEGORIES = [
   { id: 'lighting',  label: 'Lighting' },
   { id: 'decor',     label: 'Decor & vehicles' },
   { id: 'garden',    label: 'Garden (grows!)' },
+  { id: 'vehicles',  label: 'Vehicles' },
   { id: 'nature',    label: 'Trees & nature' },
 ];
 
@@ -283,6 +284,11 @@ for (const [id, label, cat, extra] of MODELS) {
   def('m:' + id, { label, cat, kind: 'model', model: id, snap: 'free', thumb: `https://cdn.polyhaven.com/asset_img/thumbs/${id}.png?width=160&height=160`, ...(extra || {}) });
 }
 
+// ---- vehicles (see vehicles.js): drawn and driven by the vehicle system, not the instanced pools
+def('v:car',  { label: 'Sports car', cat: 'vehicles', kind: 'vehicle', vtype: 'car',  snap: 'free', size: [1.95, 1.2, 4.6] });
+def('v:bike', { label: 'Bicycle',    cat: 'vehicles', kind: 'vehicle', vtype: 'bike', snap: 'free', size: [0.6, 1.05, 1.75] });
+def('v:boat', { label: 'Motor boat', cat: 'vehicles', kind: 'vehicle', vtype: 'boat', snap: 'free', size: [1.8, 1.0, 5.0], floats: true });
+
 // places you can sit (E): seat height in metres and how many people fit side by side
 const SEATS = {
   Sofa_01: { h: 0.42, n: 3 }, sofa_03: { h: 0.42, n: 4 }, chinese_sofa: { h: 0.45, n: 3 }, ArmChair_01: { h: 0.42 },
@@ -372,6 +378,7 @@ export function itemSize(it) {
 // collision volumes in the item's local frame (before rotation and scale)
 export function itemColliders(it) {
   if (it.kind === 'part') return it.cols || [];
+  if (it.kind === 'vehicle') { const s = it.size; return it.vtype === 'boat' ? [] : [{ b: [0, s[1] / 2, 0, s[0] / 2, s[1] / 2, s[2] / 2] }]; }
   if (it.kind === 'model') {
     if (it.hang || it.wall) return [];
     const s = modelSizes.get(it.model);

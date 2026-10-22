@@ -82,6 +82,23 @@ export class Town {
     put('m:outdoor_table_chair_set_01', 24.5, 46.4, { y: h0 });
     put('m:CoffeeCart_01', 13.4, 47.2, { y: h0, ry: Math.PI / 2 });
     put('m:potted_plant_04', 15.2, 47.6, { y: cafeY + 0.6, s: [2.4, 2.4, 2.4] });
+    // vehicles anyone can borrow: two cars side by side nosed toward the east road (heading 180° = facing
+    // +z), and a bike rack by the arch (heading -90° = facing east)
+    put('v:car', 29, 31.4, { y: h0, ry: Math.PI });
+    put('v:car', 32.6, 31.4, { y: h0, ry: Math.PI, c: '#f2c200' });
+    ['#2b7bd6', '#d6452b', '#2bb673'].forEach((c, i) => put('v:bike', -9.4, 62.2 + i * 0.9, { y: h0, ry: -Math.PI / 2, c }));
+    // a boat dock on the nearest coast due east of town, reached by road or bike
+    let shore = null;
+    for (let x = 50; x < 480; x += 1) { if (t.heightAt(x, C.z) < 0.25) { shore = x; break; } }
+    if (shore) {
+      for (let i = 0; i < 4; i++) put('deck', shore - 2 + i * 4, C.z, { y: 0.5, m: 'weathered' });
+      put('lamp_post', shore + 13.6, C.z + 1.6, { y: 0.7, m: 'metal' });
+      let bx = shore + 15;
+      while (bx < shore + 40 && t.heightAt(bx, C.z) > -1) bx += 1;
+      put('v:boat', bx, C.z - 3.4, { y: 0, ry: -Math.PI / 2 });
+      put('v:boat', bx, C.z + 3.4, { y: 0, ry: -Math.PI / 2, c: '#a8322a' });
+      this.dock = { x: shore + 4, z: C.z };
+    }
     // the welcome arch over the south road: two stone pillars and a lintel (solid, like any build)
     for (const x of [-5.4, 5.4]) put('pillar', x, 60, { m: 'sandstone', y: h0, s: [2.2, 1.67, 2.2] });
     put('beam', 0, 60, { m: 'sandstone', y: h0 + 4.9, s: [2.9, 2, 3] });
@@ -98,6 +115,9 @@ export class Town {
     this.placeLabel('Show home', -22, h0 + 8.4, 48);
     this.placeLabel('Show home', -22, h0 + 8.4, 28);
     this.placeLabel('Visitor Centre', 22, h0 + 5, 28);
+    this.placeLabel('Car park', 30.8, h0 + 2.6, 31.4);
+    this.placeLabel('Bike hire', -9.4, h0 + 2, 63.1);
+    if (this.dock) this.placeLabel('Boat dock', this.dock.x, 3.2, this.dock.z);
     this.h0 = h0;
     this.spawnPeople();
   }

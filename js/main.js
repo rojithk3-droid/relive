@@ -18,6 +18,7 @@ import { Wildlife } from './wildlife.js';
 import { Interact } from './interact.js';
 import { Quests } from './quests.js';
 import { Voice } from './voice.js';
+import { Vehicles } from './vehicles.js';
 import { setTextureQuality, buildMaterial } from './assets.js';
 import { Terrain } from './terrain.js';
 import { Environment } from './environment.js';
@@ -64,6 +65,8 @@ class Game {
     this.grass = new Grass(this.scene, this.terrain, this.objects);
     this.player = new Player(this.camera, this.renderer.domElement, this.terrain, this.objects, this.trees);
     this.objects.nowFn = () => this.now();
+    this.vehicles = new Vehicles(this);
+    this.objects.vehicles = this.vehicles;
     this.notes = [];
     this.initLights();
     this.applyQuality();
@@ -266,6 +269,7 @@ class Game {
         if (!pl.target) pl.pos.set(s.x, s.y, s.z);
         pl.target = new THREE.Vector3(s.x, s.y, s.z);
         pl.heading = s.h; pl.speed = s.v; pl.mode = s.m; pl.voice = !!s.vc;
+        this.vehicles.remoteState(+sid, s.vh || null);
         if (s.e !== undefined && s.e !== pl.emote) { pl.emote = s.e; pl.avatar.setEmote(s.e); }
         break;
       }
@@ -415,6 +419,8 @@ class Game {
     const s = this.player.snapshot();
     s.e = this.myEmote || null;
     if (this.voice && this.voice.on) s.vc = 1;
+    const vh = this.vehicles && this.vehicles.stateFor();
+    if (vh) s.vh = vh;
     const json = JSON.stringify(s);
     if (!force && json === this.lastState && now - this.lastSend < 2000) return;
     this.lastState = json;
@@ -435,6 +441,7 @@ class Game {
     this.player.leftDragOrbits = this.build.mode === 'explore';
     this.player.qeOrbit = !this.build.usesRotateKeys();
     this.player.update(dt, !typing);
+    this.vehicles.update(dt);
     if (this.player.speed > 0.5 && this.myEmote) { this.myEmote = null; this.myAvatar.setEmote(null); }
     this.myAvatar.update(dt, this.player.pos, this.player.heading, this.player.speed, this.player.mode);
     this.myAvatar.group.visible = this.player.camDist >= 1;
@@ -521,6 +528,7 @@ class Game {
     return rc.ray;
   }
   teleport(x, z) {
+    if (this.vehicles.driving) this.vehicles.exit(true);
     this.player.setPosition(x, null, z);
     this.player.flying = false;
     this.sendState(true);
