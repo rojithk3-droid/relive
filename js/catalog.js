@@ -16,8 +16,12 @@ export const CATEGORIES = [
   { id: 'furniture', label: 'Furniture' },
   { id: 'lighting',  label: 'Lighting' },
   { id: 'decor',     label: 'Decor & vehicles' },
+  { id: 'garden',    label: 'Garden (grows!)' },
   { id: 'nature',    label: 'Trees & nature' },
 ];
+
+// how long a planted crop takes to ripen (server clock, so everyone sees the same stage)
+export const GROW_MS = 8 * 60 * 1000;
 
 export const WALL_MATS = ['plaster', 'plaster2', 'greyrender', 'brick', 'plasterbrick', 'sandstone', 'stone', 'stonewall', 'wood', 'wooddark', 'weathered', 'bluewood', 'concrete', 'marble', 'corrugated', 'metal', 'paint'];
 export const FLOOR_MATS = ['floorwood', 'parquet', 'laminate', 'tiles', 'marbletile', 'terrazzo', 'concfloor', 'concrete', 'granite', 'stonetiles', 'wood', 'wooddark', 'marble', 'pavers', 'cobble', 'paint'];
@@ -140,7 +144,9 @@ def('round_column', { label: 'Round column', cat: 'structure', kind: 'part', mat
 def('beam', { label: 'Beam', cat: 'structure', kind: 'part', mat: 'wooddark', mats: ['wooddark', 'wood', 'metal', 'concrete'], snap: 'edge', size: [W, 0.3, 0.3],
   shape: () => new Shape().box(0, W, 0.3, 0.3, 0, 0.15, 0), cols: [{ b: [0, 0.15, 0, W / 2, 0.15, 0.15] }] });
 def('door', { label: 'Door', cat: 'structure', kind: 'part', mat: 'wooddark', mats: ['wooddark', 'wood', 'bluewood', 'weathered', 'metal', 'paint'], snap: 'edge', size: [1.06, 2.22, 0.06], slots: [null, 'metal'],
-  shape: () => new Shape().box(0, 1.06, 2.22, 0.06, 0, 1.11, 0).box(1, 0.04, 0.04, 0.16, 0.42, 1.05, 0).box(1, 0.12, 0.03, 0.03, 0.38, 1.05, 0.08).box(1, 0.12, 0.03, 0.03, 0.38, 1.05, -0.08), cols: [] });
+  // a closed door blocks the doorway; walk up and press E to swing it open (hinge on its local -x edge)
+  door: true,
+  shape: () => new Shape().box(0, 1.06, 2.22, 0.06, 0, 1.11, 0).box(1, 0.04, 0.04, 0.16, 0.42, 1.05, 0).box(1, 0.12, 0.03, 0.03, 0.38, 1.05, 0.08).box(1, 0.12, 0.03, 0.03, 0.38, 1.05, -0.08), cols: [{ b: [0, 1.11, 0, 0.53, 1.11, 0.05] }] });
 
 // ---- roofs & stairs
 def('roof_gable', { label: 'Gable roof', cat: 'roof', kind: 'part', mat: 'roofclay', mats: ROOF_MATS, snap: 'grid4', size: [W, 2, W],
@@ -212,6 +218,19 @@ def('gazebo', { label: 'Pergola', cat: 'outdoor', kind: 'part', mat: 'wood', mat
   shape: () => { const s = new Shape(); for (const x of [-1.85, 1.85]) for (const z of [-1.85, 1.85]) s.box(0, 0.15, 2.6, 0.15, x, 1.3, z); for (const z of [-1.85, 1.85]) s.box(0, 4.2, 0.18, 0.12, 0, 2.65, z); for (let i = 0; i < 9; i++) s.box(0, 0.08, 0.12, 4.4, -1.9 + i * 0.475, 2.8, 0); return s; },
   cols: [-1.85, 1.85].flatMap((x) => [-1.85, 1.85].map((z) => ({ b: [x, 1.3, z, 0.08, 1.3, 0.08] }))) });
 
+def('fountain', { label: 'Fountain', cat: 'outdoor', kind: 'part', mat: 'sandstone', mats: ['sandstone', 'stone', 'marble', 'granite', 'concrete', 'stonewall'], snap: 'grid1', size: [6.6, 2.1, 6.6], slots: [null, 'water'],
+  fountain: true,
+  shape: () => {
+    const s = new Shape();
+    for (let i = 0; i < 24; i++) { const a = (i / 24) * Math.PI * 2; s.box(0, 0.9, 0.6, 0.34, Math.cos(a) * 3.1, 0.3, Math.sin(a) * 3.1, 0, -a + Math.PI / 2); }
+    s.cyl(0, 3.0, 3.0, 0.12, 0, 0.06, 0, 32).cyl(0, 0.42, 0.55, 1.35, 0, 0.75, 0, 16).cyl(0, 1.15, 0.45, 0.3, 0, 1.55, 0, 24).cyl(0, 0.18, 0.25, 0.45, 0, 1.9, 0, 12);
+    s.cyl(1, 2.95, 2.95, 0.04, 0, 0.42, 0, 32).cyl(1, 1.05, 1.05, 0.03, 0, 1.68, 0, 24);
+    return s;
+  },
+  cols: [...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => { const a = (i / 8) * Math.PI * 2; return { b: [Math.cos(a) * 3.1, 0.3, Math.sin(a) * 3.1, 1.25, 0.3, 1.25] }; }), { b: [0, 1, 0, 0.55, 1, 0.55] }] });
+def('signpost', { label: 'Sign post', cat: 'outdoor', kind: 'part', mat: 'wooddark', mats: ['wooddark', 'wood', 'weathered', 'metal'], snap: 'free', size: [1.4, 2.4, 0.2], slots: [null, 'signwood'],
+  shape: () => new Shape().box(0, 0.12, 2.4, 0.12, 0, 1.2, 0).box(1, 1.3, 0.32, 0.05, 0.45, 2.05, 0).box(1, 1.1, 0.32, 0.05, -0.35, 1.6, 0), cols: [{ b: [0, 1.2, 0, 0.08, 1.2, 0.08] }] });
+
 // ---- lighting (procedural ones; Poly Haven lamps below)
 def('lamp_post', { label: 'Lamp post', cat: 'lighting', kind: 'part', mat: 'metal', mats: ['metal', 'paint', 'wooddark'], snap: 'grid1', size: [0.5, 4.2, 0.5], slots: [null, 'emissive'],
   light: { y: 3.9, color: '#ffd9a0', intensity: 40, distance: 22 },
@@ -264,8 +283,58 @@ for (const [id, label, cat, extra] of MODELS) {
   def('m:' + id, { label, cat, kind: 'model', model: id, snap: 'free', thumb: `https://cdn.polyhaven.com/asset_img/thumbs/${id}.png?width=160&height=160`, ...(extra || {}) });
 }
 
+// places you can sit (E): seat height in metres and how many people fit side by side
+const SEATS = {
+  Sofa_01: { h: 0.42, n: 3 }, sofa_03: { h: 0.42, n: 4 }, chinese_sofa: { h: 0.45, n: 3 }, ArmChair_01: { h: 0.42 },
+  mid_century_lounge_chair: { h: 0.36 }, Rockingchair_01: { h: 0.42 }, Ottoman_01: { h: 0.4 }, GreenChair_01: { h: 0.45 },
+  dining_chair_02: { h: 0.47 }, bar_chair_round_01: { h: 0.74 }, GothicBed_01: { h: 0.58, n: 2, bed: true },
+  vintage_day_bed: { h: 0.45, n: 2, bed: true }, painted_wooden_bench: { h: 0.45, n: 2 }, modular_street_seating: { h: 0.45, n: 5 },
+  wooden_picnic_table: { h: 0.45, n: 2, dz: 0.62 },
+};
+for (const [id, s] of Object.entries(SEATS)) if (ITEMS['m:' + id]) ITEMS['m:' + id].seat = s;
+
 // ---- trees
 for (const [k, sp] of Object.entries(SPECIES)) def('tree:' + k, { label: sp.label, cat: 'nature', kind: 'tree', species: k, snap: 'free' });
+
+// ---- garden: crops planted on the ground or in a raised bed; they grow from a sprout to ripe over
+// GROW_MS of shared server time, then E harvests them (and they grow again)
+function sphere(r, sx = 1, sy = 1, sz = 1, x = 0, y = 0, z = 0, seg = 10) {
+  const g = new THREE.SphereGeometry(r, seg, Math.max(6, seg - 2));
+  g.scale(sx, sy, sz); g.translate(x, y, z);
+  return g;
+}
+function leafRosette(s, slot, n, r, y, size, tilt = 0.35) {
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + i * 0.37;
+    const g = sphere(size, 1, 0.18, 0.55, 0, 0, 0, 8);
+    g.rotateZ(tilt); g.translate(r, 0, 0); g.rotateY(-a); g.translate(0, y + (i % 3) * 0.04, 0);
+    s.add(slot, g);
+  }
+}
+const CROPS = {
+  tomato: { label: 'Tomatoes', young: (s) => { s.cyl(0, 0.015, 0.02, 0.45, 0, 0.22, 0, 6); leafRosette(s, 1, 7, 0.12, 0.25, 0.12); },
+    ripe: (s) => { s.cyl(0, 0.018, 0.025, 0.8, 0, 0.4, 0, 6); leafRosette(s, 1, 9, 0.16, 0.45, 0.15); leafRosette(s, 1, 6, 0.1, 0.7, 0.12); for (let i = 0; i < 7; i++) { const a = i * 2.1; s.add(2, sphere(0.05, 1, 0.92, 1, Math.cos(a) * 0.15, 0.3 + (i % 3) * 0.14, Math.sin(a) * 0.15)); } },
+    slots: ['stem', 'leaf', 'tomato'] },
+  sunflower: { label: 'Sunflower', young: (s) => { s.cyl(0, 0.02, 0.025, 0.8, 0, 0.4, 0, 6); leafRosette(s, 1, 6, 0.1, 0.4, 0.13, 0.2); },
+    ripe: (s) => { s.cyl(0, 0.028, 0.035, 1.9, 0, 0.95, 0, 6); leafRosette(s, 1, 8, 0.14, 0.7, 0.18, 0.2); const head = sphere(0.2, 1, 1, 0.3, 0, 0, 0, 16); head.rotateX(-0.35); head.translate(0, 1.95, 0.08); s.add(2, head); for (let i = 0; i < 14; i++) { const a = (i / 14) * Math.PI * 2; const p = sphere(0.1, 0.45, 1, 0.12, Math.cos(a) * 0.27, Math.sin(a) * 0.27, 0, 6); p.rotateZ(a - Math.PI / 2 + Math.PI / 2); p.rotateX(-0.35); p.translate(0, 1.95, 0.06); s.add(3, p); } },
+    slots: ['stem', 'leaf', 'seeds', 'petal'] },
+  cabbage: { label: 'Cabbages', young: (s) => { leafRosette(s, 1, 6, 0.06, 0.03, 0.09, 0.5); },
+    ripe: (s) => { s.add(0, sphere(0.2, 1, 0.85, 1, 0, 0.2, 0, 14)); leafRosette(s, 1, 8, 0.2, 0.08, 0.17, 0.6); },
+    slots: ['leaf2', 'leaf'] },
+  corn: { label: 'Corn', young: (s) => { s.cyl(0, 0.02, 0.025, 0.7, 0, 0.35, 0, 6); leafRosette(s, 1, 4, 0.12, 0.35, 0.2, 0.6); },
+    ripe: (s) => { s.cyl(0, 0.03, 0.035, 2.1, 0, 1.05, 0, 6); leafRosette(s, 1, 6, 0.2, 0.6, 0.32, 0.9); leafRosette(s, 1, 4, 0.18, 1.3, 0.28, 0.9); s.add(2, sphere(0.06, 1, 2.6, 1, 0.08, 1.0, 0.03)); s.add(2, sphere(0.055, 1, 2.4, 1, -0.07, 1.2, -0.04)); },
+    slots: ['stem', 'leaf', 'corn'] },
+  pumpkin: { label: 'Pumpkins', young: (s) => { leafRosette(s, 1, 6, 0.16, 0.04, 0.15, 0.4); },
+    ripe: (s) => { leafRosette(s, 1, 9, 0.38, 0.05, 0.22, 0.5); s.add(2, sphere(0.34, 1.15, 0.75, 1.15, 0, 0.25, 0, 18)); s.cyl(0, 0.03, 0.04, 0.12, 0, 0.53, 0, 6); },
+    slots: ['stem', 'leaf', 'pumpkin'] },
+  flowers: { label: 'Flower patch', young: (s) => { leafRosette(s, 0, 8, 0.12, 0.03, 0.1, 0.5); },
+    ripe: (s) => { leafRosette(s, 0, 10, 0.2, 0.05, 0.12, 0.5); const cols = [1, 2, 3, 4]; for (let i = 0; i < 16; i++) { const a = i * 2.4, r = 0.08 + (i % 4) * 0.07; s.cyl(0, 0.008, 0.008, 0.3, Math.cos(a) * r, 0.15, Math.sin(a) * r, 4); s.add(cols[i % 4], sphere(0.045, 1, 0.6, 1, Math.cos(a) * r, 0.31, Math.sin(a) * r, 8)); } },
+    slots: ['leaf', 'pink', 'lilac', 'snowwhite', 'petal'] },
+};
+for (const [k, c] of Object.entries(CROPS)) {
+  def('crop:' + k + ':ripe', { label: c.label + ' (ripe)', cat: 'hidden', kind: 'part', slots: c.slots, fixedSlots: true, snap: 'free', size: [0.6, 0.8, 0.6], shape: () => { const s = new Shape(); c.ripe(s); return s; }, cols: [] });
+  def('crop:' + k, { label: c.label, cat: 'garden', kind: 'part', slots: c.slots, fixedSlots: true, snap: 'free', size: [0.5, 0.5, 0.5], crop: { ripe: 'crop:' + k + ':ripe', name: c.label.toLowerCase() }, shape: () => { const s = new Shape(); c.young(s); return s; }, cols: [] });
+}
 
 // ------------------------------------------------------------------ geometry cache
 const geoCache = new Map();
@@ -279,6 +348,21 @@ export function partGeometry(id) {
 
 // model sizes arrive with the model; until then a 1 m cube stands in for picking/colliders
 export const modelSizes = new Map();
+// Which way a seat faces in its own frame: +1 = +z, -1 = -z. Worked out from the geometry when the model
+// loads (the backrest is the tall part, the seat faces away from it); the bench is known up front because
+// the town places benches before any model has downloaded.
+export const modelFront = new Map([['painted_wooden_bench', -1]]);
+export function learnFront(id, parts) {
+  if (modelFront.has(id)) return;
+  let top = -Infinity;
+  for (const p of parts) { p.geometry.computeBoundingBox(); top = Math.max(top, p.geometry.boundingBox.max.y); }
+  let sum = 0, n = 0;
+  for (const p of parts) {
+    const pos = p.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i += 3) if (pos.getY(i) > top * 0.75) { sum += pos.getZ(i); n++; }
+  }
+  modelFront.set(id, n && Math.abs(sum / n) > 0.02 ? -Math.sign(sum / n) : 1);
+}
 export function itemSize(it) {
   if (it.kind === 'model') return modelSizes.get(it.model) || [1, 1, 1];
   if (it.kind === 'tree') return [3, 10, 3];

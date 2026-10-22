@@ -202,7 +202,8 @@ export class Environment {
     this.time += dt;
     const s = this.sunDir;
     const elev = s.y;
-    const day = smoothstep(-0.12, 0.12, elev);
+    const W = this.weather || { cover: 0.48, gloom: 0, fog: 0, flash: 0 };
+    const day = smoothstep(-0.12, 0.12, elev) * (1 - W.gloom * 0.35);
     this.daylight = day;
     const golden = smoothstep(0.35, 0.02, elev) * smoothstep(-0.12, 0.04, elev); // sunrise / sunset tint
 
@@ -215,7 +216,7 @@ export class Environment {
     // sun light: warm and low at the ends of the day
     const sunCol = new THREE.Color().setRGB(1, lerp(0.97, 0.62, golden), lerp(0.92, 0.38, golden));
     this.sun.color.copy(sunCol);
-    this.sun.intensity = smoothstep(-0.03, 0.18, elev) * 3.2;
+    this.sun.intensity = smoothstep(-0.03, 0.18, elev) * 3.2 * (1 - W.gloom * 0.8);
     this.sun.visible = elev > -0.05;
     // keep the shadow frustum on the player, snapped to whole shadow texels so edges don't crawl
     const sc = this.sun.shadow.camera;
@@ -230,7 +231,7 @@ export class Environment {
     this.moon.position.set(focus.x + md.x * 400, focus.y + Math.abs(md.y) * 400 + 100, focus.z + md.z * 400);
     this.moon.target.position.copy(focus);
 
-    this.hemi.intensity = lerp(0.22, 0.3, day);
+    this.hemi.intensity = lerp(0.22, 0.3, day) + W.gloom * 0.25 + W.flash * 3.5;
     this.hemi.color.setRGB(lerp(0.18, 0.75, day), lerp(0.22, 0.82, day), lerp(0.35, 0.95, day));
     this.hemi.groundColor.setRGB(lerp(0.03, 0.32, day), lerp(0.03, 0.28, day), lerp(0.05, 0.22, day));
 
@@ -238,7 +239,14 @@ export class Environment {
     const horizon = new THREE.Color().setRGB(lerp(0.035, 0.68, day), lerp(0.045, 0.78, day), lerp(0.08, 0.9, day));
     horizon.lerp(new THREE.Color(0.95, 0.62, 0.42), golden * 0.55);
     const zenith = new THREE.Color().setRGB(lerp(0.01, 0.18, day), lerp(0.015, 0.38, day), lerp(0.04, 0.78, day));
+    // overcast: everything slides toward a flat grey, and the fog thickens
+    const grey = new THREE.Color().setScalar(lerp(0.03, 0.5, day));
+    horizon.lerp(grey, W.gloom * 0.85);
+    zenith.lerp(grey.clone().multiplyScalar(0.8), W.gloom * 0.9);
+    if (W.flash > 0) { horizon.lerp(new THREE.Color(0.85, 0.88, 1), W.flash * 0.6); zenith.lerp(new THREE.Color(0.7, 0.75, 0.95), W.flash * 0.5); }
     this.scene.fog.color.copy(horizon);
+    this.scene.fog.density = 0.0011 + W.fog * 0.011;
+    this.skyGloom = W.gloom;
     this.waterUniforms.uHorizon.value.copy(horizon);
     this.waterUniforms.uZenith.value.copy(zenith);
     this.waterUniforms.uSunCol.value.copy(sunCol);
@@ -250,11 +258,23 @@ export class Environment {
     this.cloudUniforms.uTime.value = this.time;
     this.cloudUniforms.uSunCol.value.copy(sunCol).multiplyScalar(lerp(0.9, 1.25, day));
     this.cloudUniforms.uShade.value.setRGB(lerp(0.15, 0.62, day), lerp(0.16, 0.66, day), lerp(0.22, 0.74, day)).lerp(new THREE.Color(0.55, 0.42, 0.45), golden * 0.5);
-    this.cloudUniforms.uDay.value = Math.max(day, 0.08);
+    this.cloudUniforms.uDay.value = Math.max(day, 0.08) + W.flash * 0.8;
+    this.cloudUniforms.uCover.value = W.cover;
+    this.cloudUniforms.uShade.value.multiplyScalar(1 - W.gloom * 0.45);
     this.clouds.position.copy(camera.position);
     this.stars.position.copy(camera.position);
     this.starMat.opacity = smoothstep(0.05, -0.18, elev);
     this.sky.position.copy(camera.position);
+    // the scattering sky can't go grey by itself; a dome of fog-coloured haze covers it when overcast
+    if (!this.haze) {
+      this.haze = new THREE.Mesh(new THREE.SphereGeometry(8000, 24, 12), new THREE.MeshBasicMaterial({ side: THREE.BackSide, transparent: true, depthWrite: false, fog: false }));
+      this.haze.renderOrder = -1.5; this.haze.frustumCulled = false;
+      this.scene.add(this.haze);
+    }
+    this.haze.position.copy(camera.position);
+    this.haze.material.color.copy(horizon);
+    this.haze.material.opacity = Math.min(0.97, W.gloom * 1.05 + W.fog * 0.3);
+    this.haze.visible = this.haze.material.opacity > 0.01;
 
     this.renderer.toneMappingExposure = lerp(0.6, 0.78, day);
     this.scene.environmentIntensity = lerp(0.15, 0.75, day);

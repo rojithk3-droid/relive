@@ -138,6 +138,8 @@ export class Player {
   }
 
   setPosition(x, y, z) {
+    this.seat = null;
+    this.sitting = false;
     // land on the ground or a ground-floor slab, never on a roof
     this.pos.set(x, y ?? this.groundAt(x, z, this.terrain.heightAt(x, z) + 1.2, 0), z);
     this.vel.set(0, 0, 0);
@@ -176,10 +178,33 @@ export class Player {
     return b.cy - b.hy + 2 * b.hy * (col.dir > 0 ? t : 1 - t);
   }
 
+  // sit on a seat: the feet go where the hips need to be for the sitting pose, facing out of the seat
+  sitAt(x, y, z, heading) {
+    this.seat = { x, y, z, heading, from: this.pos.clone() };
+    this.pos.set(x, y, z);
+    this.heading = heading;
+    this.vel.set(0, 0, 0);
+    this.sitting = true;
+    this.mode = 'sit';
+  }
+
+  standUp() {
+    const s = this.seat;
+    this.seat = null;
+    this.sitting = false;
+    // step off the seat toward where we came from (always somewhere we could stand)
+    this.pos.copy(s.from);
+  }
+
   update(dt, inputActive = true) {
     dt = Math.min(dt, 0.05);
     // with the free camera on, the keys drive the camera and the avatar just stands where it is
     if (this.freeCam) { this.updateFreeCam(dt, inputActive); inputActive = false; }
+    if (this.seat) {
+      const moving = inputActive && this.inputEnabled && this.key('KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space');
+      if (!moving) { this.pos.set(this.seat.x, this.seat.y, this.seat.z); this.heading = this.seat.heading; this.speed = 0; this.mode = 'sit'; return; }
+      this.standUp();
+    }
     // ---- desired horizontal velocity from keys, relative to the camera
     let ix = 0, iz = 0;
     if (inputActive && this.inputEnabled) {

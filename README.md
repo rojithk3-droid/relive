@@ -38,7 +38,8 @@ a separate person.
 | Placing | `R` turn 90°, `Q`/`E` turn 15°, `[` `]` lift (Shift: 1 m), `G` grid on/off, `Esc` cancel |
 | Editing | click to select, `G` move, `Del` delete, `Ctrl+D` copy, `Ctrl+Z` undo |
 | Social | the ⌄ button folds the chat away to a round chat button (with an unread count); click it or press `Enter` to open it. `Enter` chat, `/w name msg`, `/near msg`, `/me …`, `/wave /cheer /clap /point /dance /sit`, `/tp name`, `/home` |
-| Other | `M` map (click to teleport), `P` people, `H` help, `Tab` hide panel |
+| Use | `E` near something: sit on chairs/sofas/benches/beds, open and close doors, switch lamps, harvest crops, read the notice board, talk to townspeople (move to stand up) |
+| Other | `M` map (click to teleport), `P` people, `H` help, `K` photo mode, `Tab` hide panel, `/tour`, `/town`, `/weather` |
 
 ## What's in it
 
@@ -58,6 +59,24 @@ a separate person.
   open them. You can't claim land where someone else has already built.
 - **Social:** avatars with name tags and speech bubbles, global, nearby and private chat, emotes, a people
   list, player cards (wave, message, visit, friend, mute), and a strong-language filter.
+- **Starter town:** a cobbled square with a working fountain, roads, street lamps, benches, flowers, a café,
+  two show homes you can walk into, a visitor centre, a welcome arch, signposts and a notice board for
+  everyone's notes. It belongs to everyone, so nobody can build over it.
+- **Townspeople:** Mira the guide, a barista, and residents who walk their rounds, sit on benches and chat
+  (press `E`). Mira runs the welcome tour and can find you a free home.
+- **Welcome tour and free home:** a 9-step checklist that teaches the basics. "Get my free home" claims
+  the nearest empty plot near town in your name and builds you a furnished cottage with a small garden.
+- **A living world:** shared weather (clear, cloudy, rain, thunderstorms with lightning, fog, snow on the
+  peaks, wet ground in the rain), parrot flocks, coastal storks, flamingos over the lake and wild horse
+  herds, plus synthesised ambient sound: wind, surf, rain and thunder, birdsong by day, crickets at night,
+  the fountain, and footsteps that change with the surface.
+- **Home life:** sit anywhere you can sit, doors that swing open and shut (and block when closed), lamps
+  you can switch, and gardens: tomatoes, sunflowers, cabbages, corn, pumpkins and flowers that grow over
+  8 minutes and can be harvested again and again.
+- **Faster building:** catalogue search, favourites (☆), drag to draw a whole run of walls or fences,
+  Shift+click to select several pieces, and blueprints you can save, re-place and share as a code.
+- **Avatars and social:** hats, glasses and height, photo mode (`K`) that saves a clean PNG, and proximity
+  voice chat (mic button) that fades with distance and comes from the speaker's direction.
 
 ## Speed
 

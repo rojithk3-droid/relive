@@ -3,13 +3,17 @@
 export const HALF = 512;              // the island spans -HALF..HALF metres on x and z
 export const CELL = 2;                // terrain grid spacing in metres
 export const N = HALF * 2 / CELL + 1; // vertices per side (513)
-export const CHUNK_CELLS = 32;        // cells per terrain chunk side (64 m)
+export const CHUNK_CELLS = 64;        // cells per terrain chunk side (128 m): fewer, larger draws
 export const CHUNKS = (N - 1) / CHUNK_CELLS;
 export const SEA = 0;                 // sea level
 export const PLOT = 32;               // land plots are PLOT x PLOT metres
 export const SEED = 20261022;
 export const DAY_MS = 40 * 60 * 1000; // one in-world day lasts 40 real minutes
 export const SPAWN = { x: 0, z: 70 };
+// The starter town around the spawn point belongs to everyone: nobody can build or dig inside this
+// circle (the server enforces the same numbers).
+export const TOWN = { x: 0, z: 40, r: 46 };
+export const inTown = (x, z) => Math.hypot(x - TOWN.x, z - TOWN.z) < TOWN.r;
 // The shared world server's WebSocket address, e.g. 'wss://relive-world.example.com/ws'. Empty means
 // "the host that served this page", which is right when playing through Play ReLive.cmd. A static host
 // such as GitHub Pages has no server, so the game plays solo until this points at a running one.
@@ -19,10 +23,10 @@ export const WORLD_SERVER = '';
 // post = run the effect composer at all (low draws straight to the screen); shadowEvery = re-render the
 // shadow map every N frames; cheapTerrain = one texture fetch per ground layer, no ground normal maps
 export const QUALITY = {
-  low:    { maxDpr: 1,    pixelRatio: 0.8, shadow: 1024, shadowSoft: false, shadowEvery: 2, grass: 25000,  grassRadius: 20, treeNear: 70,  treeShadow: 0,  post: false, aa: '',     bloom: false, ao: false, texRes: '1k', clouds: false, cheapTerrain: true },
-  medium: { maxDpr: 1,    pixelRatio: 1,   shadow: 2048, shadowSoft: false, shadowEvery: 2, grass: 70000,  grassRadius: 28, treeNear: 110, treeShadow: 40, post: true,  aa: 'fxaa', bloom: false, ao: false, texRes: '1k', clouds: true,  cheapTerrain: true },
-  high:   { maxDpr: 1.25, pixelRatio: 1,   shadow: 2048, shadowSoft: true,  shadowEvery: 1, grass: 150000, grassRadius: 40, treeNear: 160, treeShadow: 70, post: true,  aa: 'smaa', bloom: true,  ao: false, texRes: '2k', clouds: true,  cheapTerrain: false },
-  ultra:  { maxDpr: 2,    pixelRatio: 1,   shadow: 4096, shadowSoft: true,  shadowEvery: 1, grass: 300000, grassRadius: 55, treeNear: 240, treeShadow: 90, post: true,  aa: 'smaa', bloom: true,  ao: true,  texRes: '2k', clouds: true,  cheapTerrain: false },
+  low:    { maxDpr: 1,    pixelRatio: 0.8, shadow: 1024, shadowSoft: false, shadowEvery: 2, grass: 25000,  grassRadius: 20, treeNear: 70,  treeShadow: 0,  post: false, aa: '',     bloom: false, ao: false, texRes: '1k', clouds: false, cheapTerrain: true,  props: 0.5,  propShadows: false, people: 70 },
+  medium: { maxDpr: 1,    pixelRatio: 1,   shadow: 2048, shadowSoft: false, shadowEvery: 2, grass: 70000,  grassRadius: 28, treeNear: 110, treeShadow: 40, post: true,  aa: 'fxaa', bloom: false, ao: false, texRes: '1k', clouds: true,  cheapTerrain: true,  props: 0.75, propShadows: true,  people: 110 },
+  high:   { maxDpr: 1.25, pixelRatio: 1,   shadow: 2048, shadowSoft: true,  shadowEvery: 1, grass: 150000, grassRadius: 40, treeNear: 160, treeShadow: 70, post: true,  aa: 'smaa', bloom: true,  ao: false, texRes: '2k', clouds: true,  cheapTerrain: false, props: 1,    propShadows: true,  people: 160 },
+  ultra:  { maxDpr: 2,    pixelRatio: 1,   shadow: 4096, shadowSoft: true,  shadowEvery: 1, grass: 300000, grassRadius: 55, treeNear: 240, treeShadow: 90, post: true,  aa: 'smaa', bloom: true,  ao: true,  texRes: '2k', clouds: true,  cheapTerrain: false, props: 1.5,  propShadows: true,  people: 220 },
 };
 
 // Pick a starting preset from the GPU's name: integrated and mobile chips get "low"; entry-level

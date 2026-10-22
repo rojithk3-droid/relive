@@ -79,6 +79,19 @@ export const MATERIALS = {
   glass:      { glass: true,                 col: '#a9c6d6', label: 'Glass' },
   water:      { water: true,                 col: '#2f8fa0', label: 'Water' },
   paint:      { flat: true, rough: 0.6,      col: '#ffffff', label: 'Painted (colour)' },
+  // garden colours (crops are built from simple shapes in these)
+  leaf:       { flat: true, rough: 0.75, col: '#3d7428', label: 'Leaf' },
+  leaf2:      { flat: true, rough: 0.75, col: '#6c9e34', label: 'Light leaf' },
+  stem:       { flat: true, rough: 0.8,  col: '#557a2c', label: 'Stem' },
+  tomato:     { flat: true, rough: 0.3,  col: '#c9261b', label: 'Tomato' },
+  petal:      { flat: true, rough: 0.6,  col: '#f2c21b', label: 'Petal' },
+  seeds:      { flat: true, rough: 0.9,  col: '#3e2610', label: 'Seeds' },
+  pumpkin:    { flat: true, rough: 0.55, col: '#dc7418', label: 'Pumpkin' },
+  corn:       { flat: true, rough: 0.6,  col: '#e6c446', label: 'Corn' },
+  pink:       { flat: true, rough: 0.6,  col: '#e8679a', label: 'Pink petals' },
+  lilac:      { flat: true, rough: 0.6,  col: '#9a6ad6', label: 'Lilac petals' },
+  snowwhite:  { flat: true, rough: 0.6,  col: '#f4f2ea', label: 'White petals' },
+  signwood:   { flat: true, rough: 0.8,  col: '#6b4a2e', label: 'Sign wood' },
   emissive:   { flat: true, emissive: true,  col: '#fff2d0', label: 'Light panel' },
 };
 
@@ -197,6 +210,43 @@ export function loadBody(kind) {
   });
   avatarCache.set(def.file, p);
   return p;
+}
+
+// ------------------------------------------------------------------ animals (three.js example models, morph-target animated)
+const animalCache = new Map();
+export function loadAnimal(file) {
+  if (animalCache.has(file)) return animalCache.get(file);
+  const p = new Promise((resolve) => {
+    gltfLoader.load(THREE_MODEL(file), (g) => {
+      g.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+      resolve(g);
+    }, undefined, () => resolve(null));
+  });
+  animalCache.set(file, p);
+  return p;
+}
+
+// a text sign drawn on a canvas (town signs, notice board)
+export function textTexture(lines, opts = {}) {
+  const W = opts.w || 512, H = opts.h || 256;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = opts.bg || '#5a3b22'; g.fillRect(0, 0, W, H);
+  if (opts.grain !== false) for (let i = 0; i < 160; i++) { g.fillStyle = `rgba(0,0,0,${Math.random() * 0.08})`; g.fillRect(0, Math.random() * H, W, 1 + Math.random() * 2); }
+  if (opts.border !== false) { g.strokeStyle = opts.borderColor || 'rgba(30,18,8,0.8)'; g.lineWidth = 10; g.strokeRect(5, 5, W - 10, H - 10); }
+  g.fillStyle = opts.fg || '#f4e8cf';
+  g.textAlign = opts.align || 'center'; g.textBaseline = 'middle';
+  const size = opts.size || 64;
+  lines.forEach((l, i) => {
+    const s = typeof l === 'string' ? { t: l } : l;
+    g.font = `${s.bold === false ? 500 : 700} ${s.size || size}px Inter, Georgia, serif`;
+    const y = H / 2 + (i - (lines.length - 1) / 2) * (opts.lh || size * 1.15);
+    g.fillText(s.t, opts.align === 'left' ? 30 : W / 2, y);
+  });
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
 }
 
 // ------------------------------------------------------------------ procedural textures

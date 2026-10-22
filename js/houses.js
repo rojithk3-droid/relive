@@ -71,7 +71,7 @@ export function generateHouse(o) {
     if (o.furnish !== false) put('ceiling_light', 0, y + 2.92, nz > 1 ? 2 : 0);
   }
   // door leaf, swung open inward against the wall
-  put('door', x0 + 2 + Math.floor(nx / 2) * 4 - 0.55, F0, z1 - 0.58, Math.PI / 2, { m: 'wooddark' });
+  put('door', x0 + 2 + Math.floor(nx / 2) * 4 - 0.55, F0, z1 - 0.58, Math.PI / 2, { m: 'wooddark', open: true });
 
   // roof
   const top = F0 + (floors - 1) * SH + 3;
@@ -97,7 +97,7 @@ export function generateHouse(o) {
     const doorX = x0 + 2 + Math.floor(nx / 2) * 4;
     put('m:Sofa_01', x1 - 2.4, F0, z0 + 1.0, 0);
     put('m:CoffeeTable_01', x1 - 2.4, F0, z0 + 2.4, 0);
-    put('m:potted_plant_02', doorX + 1.3, F0, z1 - 0.7, 0);
+    put('m:potted_plant_04', doorX + 1.3, F0, z1 - 0.7, 0, { s: [2.4, 2.4, 2.4] }); // 6k triangles (the large plant is 70k)
     if (floors > 1) put('m:GothicBed_01', x1 - 1.4, F0 + SH, z0 + 1.6, 0);
     else if (W >= 12) put('m:GothicBed_01', x0 + 5.6, F0, z0 + 1.6, 0);
   }

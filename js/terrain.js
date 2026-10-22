@@ -147,6 +147,7 @@ export class Terrain {
       tN0: { value: null }, tN1: { value: null }, tN2: { value: null }, tN3: { value: null },
       tSnow: { value: null },
       uTile: { value: new THREE.Vector4(...LAYERS.map((l) => l.tile)) },
+      uWet: { value: 0 },
     };
     this.uniforms = uniforms;
     const placeholder = new THREE.DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1); placeholder.needsUpdate = true;
@@ -169,6 +170,7 @@ export class Terrain {
         .replace('#include <common>', `#include <common>
           uniform sampler2D tD0, tD1, tD2, tD3, tN0, tN1, tN2, tN3, tSnow;
           uniform vec4 uTile;
+          uniform float uWet;
           varying vec4 vSplat; varying vec3 vTWPos; varying vec3 vTWNrm;
           // two scales mixed to hide tiling (one fetch on the cheap path)
           #ifdef TERRAIN_CHEAP
@@ -203,6 +205,9 @@ export class Terrain {
           if (snow > 0.0) tcol = mix(tcol, tdiff(tSnow, tuv / 6.0) * 1.05, snow);
           // wet sand / shoreline darkening
           tcol *= mix(0.55, 1.0, smoothstep(-0.4, 1.1, vTWPos.y));
+          // rain darkens soil and makes it glossy (snow stays dry-looking)
+          float wet = uWet * (1.0 - snow) * (1.0 - smoothstep(0.5, 0.8, slope) * 0.5);
+          tcol *= 1.0 - wet * 0.3;
           diffuseColor.rgb *= tcol;
           #ifdef TERRAIN_CHEAP
           vec3 tn = vec3(0.0, 0.0, 1.0);
@@ -211,7 +216,8 @@ export class Terrain {
                    + texture2D(tN2, tuv / uTile.z).xyz * hb.z + texture2D(tN3, tuv / uTile.w).xyz * hb.w) * 2.0 - 1.0;
           tn.xy *= 1.0 - snow * 0.7;
           #endif
-          float tRough = 0.97 - hb.z * 0.12 - (1.0 - smoothstep(-0.4, 0.9, vTWPos.y)) * 0.45;`)
+          float tRough = 0.97 - hb.z * 0.12 - (1.0 - smoothstep(-0.4, 0.9, vTWPos.y)) * 0.45;
+          tRough = mix(tRough, 0.32, wet * 0.85);`)
         .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = tRough;')
         .replace('#include <normal_fragment_maps>', `
           vec3 tT = normalize(vec3(1.0, 0.0, 0.0) - nG * nG.x);

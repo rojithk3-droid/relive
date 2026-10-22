@@ -10,7 +10,14 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
-import { QUALITY, DAY_MS, SPAWN, PLOT, plotKey, detectQuality } from './config.js';
+import { QUALITY, DAY_MS, SPAWN, PLOT, plotKey, detectQuality, inTown } from './config.js';
+import { Sound } from './audio.js';
+import { Weather } from './weather.js';
+import { Town } from './town.js';
+import { Wildlife } from './wildlife.js';
+import { Interact } from './interact.js';
+import { Quests } from './quests.js';
+import { Voice } from './voice.js';
 import { setTextureQuality, buildMaterial } from './assets.js';
 import { Terrain } from './terrain.js';
 import { Environment } from './environment.js';
@@ -56,8 +63,21 @@ class Game {
     this.objects = new WorldObjects(this.scene, this.terrain, this.trees);
     this.grass = new Grass(this.scene, this.terrain, this.objects);
     this.player = new Player(this.camera, this.renderer.domElement, this.terrain, this.objects, this.trees);
+    this.objects.nowFn = () => this.now();
+    this.notes = [];
     this.initLights();
     this.applyQuality();
+    this.sound = new Sound(this);
+    this.weather = new Weather(this);
+    this.town = new Town(this);
+    this.wildlife = new Wildlife(this);
+    this.interact = new Interact(this);
+    this.quests = new Quests(this);
+    this.voice = new Voice(this);
+    // browsers start audio only after the player clicks or presses a key
+    const wake = () => this.sound.start();
+    addEventListener('pointerdown', wake);
+    addEventListener('keydown', wake);
     this.net = new Net();
     this.net.onLine = (l) => this.onLine(l);
     this.net.onStatus = (s) => this.ui && this.ui.setStatus(s);
@@ -117,6 +137,7 @@ class Game {
     this.env.setShadowSize(q.shadow);
     this.env.clouds.visible = q.clouds;
     this.terrain.setCheap(q.cheapTerrain);
+    this.objects.setPropQuality(q.props, q.propShadows);
     this.trees.nearDist = q.treeNear;
     this.trees.shadowDist = q.treeShadow;
     this.trees.lodDirty = true;
@@ -187,6 +208,10 @@ class Game {
     this.player.setPosition(p.x, null, p.z);
     this.player.camYaw = last?.yaw ?? 0;
     this.trees.populate();
+    this.town.build();
+    this.wildlife.spawn();
+    this.player.setPosition(this.player.pos.x, null, this.player.pos.z);
+    this.quests.render();
     this.net.connect(JSON.stringify(profile));
     this.loop();
   }
@@ -240,7 +265,7 @@ class Game {
         if (!pl || !s) break;
         if (!pl.target) pl.pos.set(s.x, s.y, s.z);
         pl.target = new THREE.Vector3(s.x, s.y, s.z);
-        pl.heading = s.h; pl.speed = s.v; pl.mode = s.m;
+        pl.heading = s.h; pl.speed = s.v; pl.mode = s.m; pl.voice = !!s.vc;
         if (s.e !== undefined && s.e !== pl.emote) { pl.emote = s.e; pl.avatar.setEmote(s.e); }
         break;
       }
@@ -269,6 +294,29 @@ class Game {
         const meta = parse(json) || {};
         this.plots.set(key, { owner, open: open === '1', name: meta.name || '' });
         this.build.plotsChanged();
+        this.quests.onPlot(key);
+        break;
+      }
+      case 'A': {
+        const [, json] = f(2);
+        const a = parse(json);
+        if (a) this.interact.onAction(a);
+        break;
+      }
+      case 'V': {
+        const [from, json] = f(2);
+        const m = parse(json);
+        if (m) this.voice.onSignal(+from, m);
+        break;
+      }
+      case 'K': {
+        const [, uid, time, json] = f(4);
+        const m = parse(json);
+        if (!m) break;
+        this.notes.push({ uid, time: +time, n: m.n || 'Resident', text: String(m.text || '').slice(0, 200) });
+        if (this.notes.length > 60) this.notes.shift();
+        this.town.setNotes(this.notes);
+        if (document.getElementById('notices').classList.contains('show')) this.ui.renderNotices();
         break;
       }
       case 'R': this.plots.delete(rest.trim()); this.build.plotsChanged(); break;
@@ -300,9 +348,9 @@ class Game {
 
   // ---------------------------------------------------------------- permissions (mirrors the server)
   plotAt(x, z) { return this.plots.get(plotKey(x, z)); }
-  canBuild(x, z) { const p = this.plotAt(x, z); return !p || p.owner === this.me.uid || p.open; }
+  canBuild(x, z) { if (inTown(x, z)) return false; const p = this.plotAt(x, z); return !p || p.owner === this.me.uid || p.open; }
   canModify(rec) {
-    if (!rec) return false;
+    if (!rec || rec.owner === 'town') return false;
     if (rec.owner === this.me.uid) return true;
     const p = this.plotAt(rec.x, rec.z);
     return !!p && p.owner === this.me.uid;
@@ -335,6 +383,24 @@ class Game {
   releasePlot(key) { this.net.send('R ' + key); }
   // the sender's name rides along so chat history still reads right after they leave
   chat(m) { this.net.send('C ' + JSON.stringify({ ...m, n: this.profile.name })); }
+  postNote(text) { this.net.send('K ' + JSON.stringify({ text: text.slice(0, 200), n: this.profile.name })); }
+  // a passing interaction everyone nearby should see (a door swinging, a lamp switched), not saved
+  sendAction(a) { this.net.send('A ' + JSON.stringify(a)); }
+  // something the welcome tour cares about happened
+  event(name) { this.quests.event(name); }
+
+  // render one clean frame and save it as a PNG
+  takePhoto() {
+    if (this.composer) this.composer.render(0); else this.renderer.render(this.scene, this.camera);
+    const url = this.renderer.domElement.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relive-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.png`;
+    a.click();
+    this.ui.photoFlash();
+    this.ui.toast('Photo saved to your downloads');
+    this.event('photo');
+  }
   whisper(sid, text) { this.net.send(`W ${sid}\t${JSON.stringify({ text })}`); }
   emote(e) {
     this.myEmote = e;
@@ -348,6 +414,7 @@ class Game {
     this.lastSend = now;
     const s = this.player.snapshot();
     s.e = this.myEmote || null;
+    if (this.voice && this.voice.on) s.vc = 1;
     const json = JSON.stringify(s);
     if (!force && json === this.lastState && now - this.lastSend < 2000) return;
     this.lastState = json;
@@ -379,6 +446,7 @@ class Game {
     if (this.ready) this.sendState();
 
     this.env.setTimeOfDay(this.timeOfDay());
+    this.weather.update(dt);
     this.env.update(dt, this.player.pos, this.camera);
     const night = 1 - this.env.daylight;
     buildMaterial('emissive').emissiveIntensity = 0.4 + night * 2.6;
@@ -386,7 +454,15 @@ class Game {
     this.terrain.update();
     this.trees.update(dt, this.camera);
     this.grass.update(this.camera);
+    this.objects.updateCrops(dt);
+    this.objects.updateLod(this.camera.position);
+    this.town.update(dt);
+    this.wildlife.update(dt);
     this.build.update(dt);
+    this.interact.update(dt);
+    this.sound.update(dt);
+    this.voice.update();
+    this.quests.update();
     this.ui.update(dt);
 
     // the shadow map only re-renders every `shadowEvery` frames (static shadows don't need more)
@@ -394,7 +470,8 @@ class Game {
     if (this.frameNo % this.q.shadowEvery === 0) this.renderer.shadowMap.needsUpdate = true;
     if (this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
-    if (this.settings.names) this.labels.render(this.scene, this.camera);
+    // name tags are HTML; repositioning them every other frame halves their cost on slower machines
+    if (this.settings.names && (this.q.shadowEvery === 1 || this.frameNo % 2 === 0)) this.labels.render(this.scene, this.camera);
     this.adaptResolution(dt);
 
     this.saveTimer = (this.saveTimer || 0) + dt;
@@ -411,15 +488,21 @@ class Game {
     if (on) {
       for (const id of this.objects.lights) {
         const r = this.objects.get(id);
-        if (!r) continue;
+        if (!r || r.off || this.interact.lightsOff.has(id)) continue;
         const d = (r.x - cam.x) ** 2 + (r.z - cam.z) ** 2;
         if (d < 160 * 160) list.push([d, r]);
       }
       list.sort((a, b) => a[0] - b[0]);
     }
+    // every lit lamp costs every surface a lighting pass: fewer real lights on slower presets
+    const maxLamps = this.qualityName === 'low' ? 4 : this.qualityName === 'medium' ? 8 : 12;
     this.lampLights.forEach((l, i) => {
-      const e = list[i];
-      if (!e) { l.visible = false; return; }
+      const e = i < maxLamps && list[i];
+      // The number of active lights is compiled into every shader, so it never changes: the same lamps
+      // stay switched on around the clock (dark by day, unused ones dark too). Changing it froze the game
+      // for seconds while ~130 shaders rebuilt at every dusk and dawn.
+      l.visible = i < maxLamps;
+      if (!e) { l.intensity = 0; return; }
       const r = e[1], L = ITEMS[r.t].light;
       l.visible = true;
       l.color.set(L.color);

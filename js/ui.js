@@ -3,6 +3,9 @@
 import * as THREE from 'three';
 import { MODES } from './build.js';
 import { BODIES } from './assets.js';
+import { HATS } from './avatar.js';
+import { KINDS as WEATHER } from './weather.js';
+import { homeOf } from './quests.js';
 import { HALF, N, CELL, SEA, PLOT, plotOrigin } from './config.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -36,6 +39,23 @@ export class UI {
     const rail = $('#modes');
     rail.innerHTML = MODES.map((m) => `<button data-mode="${m.id}" title="${m.label} (${m.key})"><svg viewBox="0 0 24 24"><path d="${m.icon}"/></svg><kbd>${m.key}</kbd></button>`).join('');
     rail.onclick = (e) => { const b = e.target.closest('[data-mode]'); if (b) this.g.build.setMode(b.dataset.mode); };
+    $('#btn-photo').onclick = () => this.enterPhoto();
+    $('#photo-take').onclick = () => this.g.takePhoto();
+    $('#photo-names').onclick = () => document.body.classList.toggle('photo-names');
+    $('#photo-exit').onclick = () => this.exitPhoto();
+    $('#btn-voice').onclick = async () => {
+      const v = this.g.voice;
+      if (!v.on) { if (await v.enable()) document.body.classList.add('voice-on'); }
+      else if (!v.muted) { v.setMuted(true); document.body.classList.add('voice-muted'); this.toast('Microphone muted - click again to turn voice off'); }
+      else { v.setMuted(false); v.disable(); document.body.classList.remove('voice-on', 'voice-muted'); this.toast('Voice chat off'); }
+    };
+    $('#notice-post').onclick = () => {
+      const t = $('#notice-text').value.trim();
+      if (!t) return;
+      this.g.postNote(t);
+      $('#notice-text').value = '';
+    };
+    $('#notice-text').onkeydown = (e) => e.stopPropagation();
     $('#chat-hide').onclick = () => this.setChatHidden(true);
     $('#chat-open').onclick = () => { this.setChatHidden(false); $('#chat-input').focus(); };
     this.setChatHidden(!!this.g.settings.chatHidden);
@@ -63,6 +83,8 @@ export class UI {
       if (this.isTyping()) return;
       if (e.key === 'Enter' && this.g.ready) { e.preventDefault(); this.setChatHidden(false); input.focus(); }
       else if (e.key === '/' && this.g.ready) { e.preventDefault(); this.setChatHidden(false); input.focus(); input.value = '/'; }
+      else if (e.code === 'Escape' && document.body.classList.contains('photo')) this.exitPhoto();
+      else if (e.code === 'KeyK' && !e.ctrlKey && this.g.ready) document.body.classList.contains('photo') ? this.g.takePhoto() : this.enterPhoto();
       else if (e.code === 'KeyM' && !e.ctrlKey) this.openMap();
       else if (e.code === 'KeyP' && !e.ctrlKey) this.toggle('#people');
       else if (e.code === 'KeyH' && !e.ctrlKey) this.toggle('#help');
@@ -100,11 +122,17 @@ export class UI {
     let body = p.body, color = p.color;
     $('#w-bodies').onclick = (e) => { const b = e.target.closest('[data-body]'); if (!b) return; body = b.dataset.body; $('#w-bodies').querySelectorAll('.chip').forEach((x) => x.classList.toggle('on', x === b)); };
     $('#w-colors').onclick = (e) => { const b = e.target.closest('[data-color]'); if (!b) return; color = b.dataset.color; $('#w-colors').querySelectorAll('.sw').forEach((x) => x.classList.toggle('on', x === b)); };
+    $('#w-hat').innerHTML = Object.entries(HATS).map(([k, l]) => `<option value="${k}" ${k === (p.hat || 'none') ? 'selected' : ''}>${l}</option>`).join('');
+    $('#w-hatcolor').value = p.hatColor || '#3a5a8c';
+    $('#w-glasses').checked = !!p.glasses;
+    $('#w-height').value = p.height || 1;
+    $('#w-height-v').textContent = (+(p.height || 1)).toFixed(2);
+    $('#w-height').oninput = () => { $('#w-height-v').textContent = (+$('#w-height').value).toFixed(2); };
     $('#w-go').textContent = first ? 'Enter the world' : 'Save';
     $('#w-go').onclick = () => {
       const name = $('#w-name').value.trim().replace(/\s+/g, ' ').slice(0, 24);
       if (name.length < 2) { $('#w-name').focus(); $('#w-name').classList.add('bad'); return; }
-      const prof = { name, body, color };
+      const prof = { name, body, color, hat: $('#w-hat').value, hatColor: $('#w-hatcolor').value, glasses: $('#w-glasses').checked || undefined, height: +$('#w-height').value };
       w.classList.remove('show');
       if (first) this.enter(prof); else this.g.updateProfile(prof);
     };
@@ -165,7 +193,15 @@ export class UI {
       const [cmd, ...rest] = text.slice(1).split(' ');
       const arg = rest.join(' ');
       const emotes = ['wave', 'cheer', 'clap', 'point', 'dance', 'sit'];
-      if (emotes.includes(cmd)) { g.emote(cmd); g.chat({ text: `/${cmd}`, emote: cmd }); return; }
+      if (emotes.includes(cmd)) { g.emote(cmd); g.chat({ text: `/${cmd}`, emote: cmd }); g.event(cmd); return; }
+      if (cmd === 'tour') { g.quests.show(); return; }
+      if (cmd === 'photo') { this.enterPhoto(); return; }
+      if (cmd === 'weather') {
+        if (!arg) { const f = g.weather.forecast(g.now()); this.system(`Weather: ${WEATHER[g.weather.kind].label}. Next: ${WEATHER[f.next].label} in about ${f.minutes} min. (/weather clear|cloudy|rain|storm|fog|world changes only your view)`); return; }
+        if (arg === 'world' || WEATHER[arg]) { g.settings.weather = arg === 'world' ? '' : arg; g.store.set('settings', g.settings); this.system(arg === 'world' ? 'Following the shared weather' : `Your view now shows: ${WEATHER[arg].label}`); }
+        else this.system('Weather options: clear, cloudy, rain, storm, fog, world');
+        return;
+      }
       if (cmd === 'me') { g.chat({ text: arg, me: true }); return; }
       if (cmd === 'w' || cmd === 'msg') {
         const m = arg.match(/^"([^"]+)"\s+(.+)$/) || arg.match(/^(\S+)\s+(.+)$/);
@@ -181,12 +217,14 @@ export class UI {
         if (pl) { g.teleport(pl.pos.x + 2, pl.pos.z + 2); this.system(`Visiting ${pl.profile.name}`); } else this.system('Nobody by that name is online');
         return;
       }
-      if (cmd === 'home') { g.teleport(0, 70); return; }
+      if (cmd === 'home') { const h = homeOf(g); if (h) g.teleport(h.x, h.z); else { g.teleport(0, 70); this.system('You don\'t have a home yet - ask Mira at the fountain, or use the welcome tour. Took you to town.'); } return; }
+      if (cmd === 'town') { g.teleport(0, 70); return; }
       if (cmd === 'time') { this.setTime(arg); return; }
-      this.system('Commands: /w name msg · /near msg · /me action · /wave /cheer /clap /point /dance /sit · /tp name · /home · /time noon|sunset|night|morning|world');
+      this.system('Commands: /w name msg · /near msg · /me action · /wave /cheer /clap /point /dance /sit · /tp name · /home · /town · /tour · /photo · /weather · /time noon|sunset|night|morning|world');
       return;
     }
     g.chat({ text: text.slice(0, 400), near: this.chatTab === 'near' });
+    g.event('chat');
   }
 
   setTime(v) {
@@ -318,6 +356,9 @@ export class UI {
       <p class="muted small-note">Graphics chip: ${esc(this.g.detected.gpu || 'unknown')} · now ${this.g.fps ? Math.round(this.g.fps) + ' fps' : 'measuring…'} at ${Math.round(this.g.resScale * 100)}% resolution</p>
       <label class="check"><input type="checkbox" data-s="adaptive" ${s.adaptive !== false ? 'checked' : ''}> Dynamic resolution (keeps it smooth by lowering sharpness when busy)</label>
       <label class="field">Time of day<select data-s="time">${[['world', 'Shared world clock'], ['morning', 'Always morning'], ['noon', 'Always noon'], ['sunset', 'Always sunset'], ['night', 'Always night']].map(([k, l]) => `<option value="${k}" ${k === s.time ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="field">Weather<select data-s="weather">${[['', 'Shared world weather'], ...Object.entries(WEATHER).map(([k, w]) => [k, 'Always ' + w.label.toLowerCase()])].map(([k, l]) => `<option value="${k}" ${k === (s.weather || '') ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="slider">Volume<input type="range" min="0" max="1" step="0.05" value="${s.volume ?? 0.7}" data-s="volume"><span>${Math.round((s.volume ?? 0.7) * 100)}</span></label>
+      <label class="check"><input type="checkbox" data-s="sound" ${s.sound !== false ? 'checked' : ''}> World sounds (wind, birds, rain, footsteps)</label>
       <label class="slider">Mouse speed<input type="range" min="0.3" max="2.5" step="0.1" value="${s.sens}" data-s="sens"><span>${s.sens}</span></label>
       <label class="check"><input type="checkbox" data-s="invertY" ${s.invertY ? 'checked' : ''}> Invert vertical look</label>
       <label class="check"><input type="checkbox" data-s="names" ${s.names ? 'checked' : ''}> Show name tags</label>
@@ -332,6 +373,7 @@ export class UI {
       this.g.store.set('settings', s);
       this.g.player.settings.sens = s.sens; this.g.player.settings.invertY = s.invertY;
       if (k === 'quality' && e.type === 'change') { this.g.applyQuality(); this.toast(`Graphics: ${this.g.qualityName}`); }
+      if (k === 'volume' || k === 'sound') { this.g.sound.start(); this.g.sound.setVolume(); if (k === 'volume') t.parentElement.querySelector('span').textContent = Math.round(s.volume * 100); }
       if (k === 'adaptive' && !s.adaptive) { this.g.resScale = 1; this.g.renderer.setPixelRatio(this.g.basePixelRatio); this.g.resize(); }
       if (k === 'names') this.g.labels.domElement.style.display = s.names ? '' : 'none';
     };
@@ -427,7 +469,7 @@ export class UI {
   update(dt) {
     if (!this.g.ready) return;
     this.miniT = (this.miniT || 0) + dt;
-    if (this.miniT > 0.25) {
+    if (this.miniT > (this.g.q.shadowEvery > 1 ? 0.5 : 0.25)) {
       this.miniT = 0;
       if (this.mapDirty && (this.mapAge = (this.mapAge || 0) + 1) > 8) { this.renderMapImage(); this.mapAge = 0; }
       if (!this.mapImg) this.renderMapImage();
@@ -438,6 +480,13 @@ export class UI {
       const mins = Math.floor(tod * 24 * 60);
       $('#clock').textContent = `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
       $('#clock').classList.toggle('night', this.g.env.daylight < 0.4);
+      const w = this.g.weather;
+      if (w) {
+        const icon = { clear: this.g.env.daylight < 0.4 ? '☾' : '☀', cloudy: '☁', rain: '🌧', storm: '⛈', fog: '🌫' }[w.kind];
+        const pill = $('#weather-pill');
+        const txt = `${icon} ${WEATHER[w.kind].label}`;
+        if (pill.textContent !== txt) { pill.textContent = txt; const f = w.forecast(this.g.now()); pill.title = `Next: ${WEATHER[f.next].label} in about ${f.minutes} min`; }
+      }
       const p = this.g.player.pos;
       const plot = this.g.plotAt(p.x, p.z);
       $('#where').textContent = plot ? (plot.name || 'Private plot') + ` · ${this.g.ownerName(plot.owner)}` : this.g.player.flying ? 'Flying' : this.g.player.mode === 'swim' ? 'Swimming' : 'Public land';
@@ -445,6 +494,51 @@ export class UI {
   }
 
   setFreeCam(on) { document.body.classList.toggle('freecam', on); }
+
+  // ---------------------------------------------------------------- notice board
+  openNotices() {
+    this.renderNotices();
+    $('#notices').classList.add('show');
+    setTimeout(() => $('#notice-text').focus(), 50);
+  }
+  renderNotices() {
+    const notes = this.g.notes;
+    $('#notice-list').innerHTML = notes.length ? [...notes].reverse().map((n) => `<div class="note"><b style="color:${this.nameColor(n.uid)}">${esc(n.n)}</b><span class="muted"> · ${new Date(n.time).toLocaleDateString()} ${new Date(n.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><p>${esc(this.filterWords(n.text))}</p></div>`).join('') : '<p class="muted">No notes yet. Be the first!</p>';
+  }
+
+  // ---------------------------------------------------------------- townspeople
+  npcDialog(p, line) {
+    const el = $('#npc'), g = this.g;
+    el.querySelector('.npc-name').textContent = `${p.def.name} · ${p.def.role}`;
+    el.querySelector('.npc-line').textContent = `"${line}"`;
+    const acts = p.def.guide
+      ? [['tour', 'Show me around'], ['home', 'Find me a free home'], ['weather', 'What\'s the weather?'], ['bye', 'Bye!']]
+      : [['more', 'Tell me more'], ['bye', 'Bye!']];
+    el.querySelector('.npc-acts').innerHTML = acts.map(([k, l], i) => `<button class="${i ? 'ghost' : ''}" data-n="${k}">${l}</button>`).join('');
+    el.querySelector('.npc-acts').onclick = (e) => {
+      const b = e.target.closest('[data-n]');
+      if (!b) return;
+      const k = b.dataset.n;
+      if (k === 'bye') { el.classList.remove('show'); p.av.setEmote('wave'); setTimeout(() => p.av.setEmote(null), 2500); return; }
+      if (k === 'more') { this.npcDialog(p, g.town.talk(p)); return; }
+      if (k === 'tour') { g.quests.show(); el.querySelector('.npc-line').textContent = '"Follow the checklist on the left - I\'ll tick things off as you go!"'; return; }
+      if (k === 'home') { el.classList.remove('show'); g.quests.starterHome(); return; }
+      if (k === 'weather') { const f = g.weather.forecast(g.now()); el.querySelector('.npc-line').textContent = `"Right now it's ${WEATHER[g.weather.kind].label.toLowerCase()}. In about ${f.minutes} minutes: ${WEATHER[f.next].label.toLowerCase()}."`; }
+    };
+    el.classList.add('show');
+  }
+
+  // ---------------------------------------------------------------- photo mode
+  enterPhoto() {
+    if (!this.g.ready) return;
+    document.body.classList.add('photo');
+    this.toast('Photo mode: frame your shot (drag, scroll, V for free camera), then Take photo');
+  }
+  exitPhoto() { document.body.classList.remove('photo', 'photo-names'); }
+  photoFlash() {
+    const f = $('#flash');
+    f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
+  }
 
   hint(text) {
     const el = $('#hint');

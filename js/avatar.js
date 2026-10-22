@@ -9,9 +9,10 @@ import { loadBody, BODIES } from './assets.js';
 const UP = new THREE.Vector3(0, 1, 0);
 const tq = new THREE.Quaternion(), tq2 = new THREE.Quaternion(), tv = new THREE.Vector3(), tv2 = new THREE.Vector3();
 
+// joints by name; end markers like HeadTop_End are plain nodes in some rigs, so any node counts
 function findBone(root, suffix) {
   let hit = null;
-  root.traverse((o) => { if (!hit && o.isBone && o.name.replace(/[^A-Za-z]/g, '').endsWith(suffix)) hit = o; });
+  root.traverse((o) => { if (!hit && (o.isBone || o.type === 'Object3D') && o.name.replace(/[^A-Za-z]/g, '').endsWith(suffix)) hit = o; });
   return hit;
 }
 
@@ -29,9 +30,54 @@ function aim(bone, child, dir, w) {
   bone.updateWorldMatrix(false, true);
 }
 
+// ------------------------------------------------------------------ accessories
+export const HATS = { none: 'No hat', cap: 'Cap', beanie: 'Beanie', tophat: 'Top hat', cowboy: 'Cowboy hat', sunhat: 'Sun hat', crown: 'Crown', flowers: 'Flower crown' };
+
+function makeHat(kind, color) {
+  if (!kind || kind === 'none' || !HATS[kind]) return null;
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.8 });
+  const g = new THREE.Group();
+  const add = (geo, mat = m, x = 0, y = 0, z = 0) => { const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); o.castShadow = true; g.add(o); return o; };
+  const dome = (r, sy = 1) => { const d = new THREE.SphereGeometry(r, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2); d.scale(1, sy, 1.08); return d; };
+  switch (kind) {
+    case 'cap': add(dome(0.118, 0.8)); { const b = add(new THREE.CylinderGeometry(0.1, 0.1, 0.012, 16, 1, false, -Math.PI / 2 - 0.9, 1.8), m, 0, 0.005, -0.09); b.scale.set(1.1, 1, 1.1); } break;
+    case 'beanie': add(dome(0.122, 1.1)); add(new THREE.TorusGeometry(0.118, 0.022, 8, 24).rotateX(Math.PI / 2), m, 0, 0.012, 0); break;
+    case 'tophat': add(new THREE.CylinderGeometry(0.1, 0.105, 0.22, 20), m, 0, 0.12, 0); add(new THREE.CylinderGeometry(0.175, 0.175, 0.014, 24), m, 0, 0.01, 0); add(new THREE.CylinderGeometry(0.106, 0.106, 0.035, 20), new THREE.MeshStandardMaterial({ color: '#7a1f1f' }), 0, 0.035, 0); break;
+    case 'cowboy': add(dome(0.12, 0.95)); { const b = add(new THREE.CylinderGeometry(0.24, 0.24, 0.016, 24), m, 0, 0.012, 0); b.scale.set(1, 1, 1.1); } break;
+    case 'sunhat': { const straw = new THREE.MeshStandardMaterial({ color: '#d8c08a', roughness: 0.9 }); add(dome(0.12, 0.7), straw); add(new THREE.CylinderGeometry(0.28, 0.28, 0.01, 28), straw, 0, 0.01, 0); add(new THREE.TorusGeometry(0.12, 0.012, 6, 24).rotateX(Math.PI / 2), m, 0, 0.03, 0); } break;
+    case 'crown': {
+      const gold = new THREE.MeshStandardMaterial({ color: '#e7b93a', metalness: 1, roughness: 0.25 });
+      add(new THREE.CylinderGeometry(0.11, 0.11, 0.07, 20, 1, true), gold, 0, 0.04, 0).material.side = THREE.DoubleSide;
+      for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; add(new THREE.ConeGeometry(0.022, 0.07, 6), gold, Math.cos(a) * 0.105, 0.105, Math.sin(a) * 0.105); add(new THREE.SphereGeometry(0.012, 8, 6), new THREE.MeshStandardMaterial({ color: ['#d12e2e', '#2e6bd1', '#2ed16b'][i % 3], roughness: 0.2 }), Math.cos(a) * 0.112, 0.045, Math.sin(a) * 0.112); }
+      break;
+    }
+    case 'flowers': {
+      add(new THREE.TorusGeometry(0.115, 0.012, 6, 24).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#4f7f2e' }), 0, 0.02, 0);
+      const cols = ['#e8679a', '#f2c21b', '#ffffff', '#9a6ad6', color];
+      for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; add(new THREE.SphereGeometry(0.026, 8, 6), new THREE.MeshStandardMaterial({ color: cols[i % cols.length], roughness: 0.6 }), Math.cos(a) * 0.118, 0.03, Math.sin(a) * 0.118); }
+      break;
+    }
+  }
+  return g;
+}
+
+function makeGlasses() {
+  const m = new THREE.MeshStandardMaterial({ color: '#1b1b1d', roughness: 0.3, metalness: 0.4 });
+  const lens = new THREE.MeshPhysicalMaterial({ color: '#223', roughness: 0.05, transparent: true, opacity: 0.55 });
+  const g = new THREE.Group();
+  for (const x of [-0.034, 0.034]) {
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.026, 0.004, 6, 18), m); rim.position.x = x; g.add(rim);
+    const l = new THREE.Mesh(new THREE.CircleGeometry(0.025, 18), lens); l.position.set(x, 0, -0.001); l.rotation.y = Math.PI; g.add(l);
+  }
+  const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.004, 0.004), m); g.add(bridge);
+  return g;
+}
+
 export class Avatar {
-  constructor(scene, profile) {
+  // opts.noShadow: background characters (townspeople) skip the shadow pass, which halves their cost
+  constructor(scene, profile, opts = {}) {
     this.scene = scene;
+    this.noShadow = !!opts.noShadow;
     this.group = new THREE.Group();
     this.group.rotation.order = 'YXZ';
     scene.add(this.group);
@@ -53,6 +99,8 @@ export class Avatar {
   async setProfile(p) {
     this.profile = p;
     this.tag.querySelector('.nm').textContent = p.name || 'Guest';
+    this.group.scale.setScalar(Math.min(1.15, Math.max(0.85, p.height || 1)));
+    this.buildAccessories();
     const kind = BODIES[p.body] ? p.body : 'soldier';
     if (this.kind === kind && this.model) { this.applyTint(); return; }
     this.kind = kind;
@@ -61,7 +109,7 @@ export class Avatar {
     if (this.model) this.group.remove(this.model);
     this.model = SkeletonUtils.clone(src.scene);
     this.model.rotation.y = src.def.yaw;
-    this.model.traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); o.userData.baseColor = o.material.color.clone(); } });
+    this.model.traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); o.userData.baseColor = o.material.color.clone(); o.castShadow = !this.noShadow; } });
     this.group.add(this.model);
     this.mixer = new THREE.AnimationMixer(this.model);
     this.actions = {};
@@ -70,7 +118,7 @@ export class Avatar {
       if (clip) { const a = this.mixer.clipAction(clip); a.play(); a.weight = k === 'idle' ? 1 : 0; this.actions[k] = a; }
     }
     this.bones = {};
-    for (const n of ['Hips', 'Spine', 'Spine2', 'Head', 'RightArm', 'RightForeArm', 'RightHand', 'LeftArm', 'LeftForeArm', 'LeftHand', 'RightUpLeg', 'RightLeg', 'RightFoot', 'LeftUpLeg', 'LeftLeg', 'LeftFoot']) this.bones[n] = findBone(this.model, n);
+    for (const n of ['Hips', 'Spine', 'Spine2', 'Head', 'HeadTopEnd', 'RightArm', 'RightForeArm', 'RightHand', 'LeftArm', 'LeftForeArm', 'LeftHand', 'RightUpLeg', 'RightLeg', 'RightFoot', 'LeftUpLeg', 'LeftLeg', 'LeftFoot']) this.bones[n] = findBone(this.model, n);
     this.applyTint();
   }
 
@@ -85,6 +133,31 @@ export class Avatar {
       o.material.color.copy(o.userData.baseColor).multiply(c);
     });
   }
+
+  // hats and glasses ride on the head: rebuilt when the profile changes, positioned every frame
+  buildAccessories() {
+    if (this.acc) { this.group.remove(this.acc.hat, this.acc.glasses); }
+    const p = this.profile;
+    const hat = makeHat(p.hat, p.hatColor || '#3a5a8c');
+    const glasses = p.glasses ? makeGlasses() : null;
+    this.acc = { hat, glasses };
+    if (hat) this.group.add(hat);
+    if (glasses) this.group.add(glasses);
+  }
+
+  placeAccessories() {
+    if (!this.acc || !this.bones || (!this.acc.hat && !this.acc.glasses)) return;
+    const top = this.bones.HeadTopEnd, head = this.bones.Head;
+    if (!top || !head) return;
+    // only the chain from the root to the head needs fresh matrices, not the whole skeleton
+    top.updateWorldMatrix(true, false);
+    const tp = this.group.worldToLocal(top.getWorldPosition(tv));
+    const hp = this.group.worldToLocal(head.getWorldPosition(tv2));
+    if (this.acc.hat) this.acc.hat.position.set(tp.x, tp.y - 0.07, tp.z);
+    if (this.acc.glasses) this.acc.glasses.position.set(hp.x, hp.y + 0.09, hp.z - 0.1);
+  }
+
+  setSpeaking(on) { if (this.speaking !== on) { this.speaking = on; this.tag.classList.toggle('speaking', on); } }
 
   say(text) {
     const box = this.tag.querySelector('.bubbles');
@@ -126,6 +199,7 @@ export class Avatar {
     if (this.emoteW > 0.01 || this.sitW > 0.01) this.pose(this.emoteW, this.sitW);
     // swimming: lean forward
     this.model.rotation.x = mode === 'swim' ? 0.9 : mode === 'fly' && moving ? 0.5 : 0;
+    this.placeAccessories();
   }
 
   pose(w, sw) {

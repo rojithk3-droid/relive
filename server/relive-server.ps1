@@ -74,6 +74,9 @@ public class RlServer {
   Dictionary<string, int> objCount = new Dictionary<string, int>();
   List<string> terrain = new List<string>();
   List<string> chat = new List<string>();
+  List<string> notes = new List<string>();
+  // the starter town (centre and radius, metres) belongs to everyone: no building or digging inside it
+  const double TOWN_X = 0, TOWN_Z = 40, TOWN_R = 46;
   long epoch;
   bool dirty;
   static readonly CultureInfo IC = CultureInfo.InvariantCulture;
@@ -115,6 +118,7 @@ public class RlServer {
           case 'L': if (p.Length >= 4) { RlPlot pl = new RlPlot(); pl.Owner = p[1]; pl.Open = p[2] == "1"; pl.Json = p[3]; plots[p[0]] = pl; } break;
           case 'T': terrain.Add(line.Substring(2)); break;
           case 'C': chat.Add(line); break;
+          case 'K': notes.Add(line); break;
         }
       } catch { }
     }
@@ -132,6 +136,7 @@ public class RlServer {
       foreach (string t in terrain) sb.Append("T ").Append(t).Append('\n');
       foreach (KeyValuePair<string, RlObj> kv in objects) sb.Append("O ").Append(kv.Key).Append('\t').Append(kv.Value.Owner).Append('\t').Append(F(kv.Value.X)).Append('\t').Append(F(kv.Value.Z)).Append('\t').Append(kv.Value.Json).Append('\n');
       foreach (string c in chat) sb.Append(c).Append('\n');
+      foreach (string k in notes) sb.Append(k).Append('\n');
     }
     try {
       string tmp = dataFile + ".tmp";
@@ -244,7 +249,10 @@ public class RlServer {
   //   R plotKey                    release a plot you own
   //   C json                       chat to everyone
   //   W sessionId  json            private message
-  // Server -> client: Y (welcome), B (snapshot start), N, P, X (left), O, D, T, L, R, C, W, E (refused, reason)
+  //   A json                       passing interaction (door, lamp) relayed to everyone else, not stored
+  //   V sessionId  json            voice-chat handshake relayed to one player
+  //   K json                       note for the town notice board (stored)
+  // Server -> client: Y (welcome), B (snapshot start), N, P, X (left), O, D, T, L, R, C, W, A, V, K, E (refused, reason)
   void OnCommand(RlClient cl, string line) {
     char cmd = line[0];
     string rest = line.Length > 2 ? line.Substring(2) : "";
@@ -358,6 +366,33 @@ public class RlServer {
         Broadcast(outMsg, null);
         break;
       }
+      case 'A': {
+        // a passing interaction (door swung, lamp switched): shown to everyone, never stored
+        if (rest.Length > 1000) return;
+        Broadcast("A " + cl.Id + "\t" + rest, cl);
+        break;
+      }
+      case 'V': {
+        // voice-chat handshake for one other player
+        p = rest.Split(new char[] { '\t' }, 2);
+        if (p.Length < 2 || p[1].Length > 12000) return;
+        int vt; if (!int.TryParse(p[0], out vt)) return;
+        RlClient vtarget = null;
+        lock (gate) { foreach (RlClient c in clients) if (c.Id == vt && c.Hello) vtarget = c; }
+        if (vtarget != null) SendTo(vtarget, "V " + cl.Id + "\t" + p[1]);
+        break;
+      }
+      case 'K': {
+        // a note pinned to the town notice board (kept, newest 60)
+        if (rest.Length > 600) return;
+        DateTime know = DateTime.UtcNow;
+        if ((know - cl.ChatWindow).TotalSeconds > 6) { cl.ChatWindow = know; cl.ChatCount = 0; }
+        if (++cl.ChatCount > 6) { Refuse(cl, "Slow down a little.", null); return; }
+        string kmsg = "K " + cl.Id + "\t" + cl.Uid + "\t" + NowMs().ToString(IC) + "\t" + rest;
+        lock (gate) { notes.Add(kmsg); if (notes.Count > 60) notes.RemoveAt(0); dirty = true; }
+        Broadcast(kmsg, null);
+        break;
+      }
       case 'W': {
         p = rest.Split(new char[] { '\t' }, 2);
         if (p.Length < 2 || p[1].Length > 2000) return;
@@ -387,6 +422,7 @@ public class RlServer {
       foreach (string t in terrain) sb.Append("T ").Append(t).Append('\n');
       foreach (KeyValuePair<string, RlObj> kv in objects) sb.Append(ObjLine(kv.Key, kv.Value)).Append('\n');
       foreach (string c in chat) sb.Append(c).Append('\n');
+      foreach (string k in notes) sb.Append(k).Append('\n');
       foreach (RlClient o in clients) {
         if (!o.Hello || o == cl) continue;
         sb.Append("N ").Append(o.Id).Append('\t').Append(o.Uid).Append('\t').Append(o.Profile).Append('\n');
@@ -403,6 +439,7 @@ public class RlServer {
   static string ObjLine(string id, RlObj o) { return "O " + id + "\t" + o.Owner + "\t" + F(o.X) + "\t" + F(o.Z) + "\t" + o.Json; }
 
   bool CanBuild(string uid, double x, double z) {
+    if (Math.Sqrt((x - TOWN_X) * (x - TOWN_X) + (z - TOWN_Z) * (z - TOWN_Z)) < TOWN_R) return false;
     RlPlot pl;
     if (!plots.TryGetValue(PlotKey(x, z), out pl)) return true;
     return pl.Owner == uid || pl.Open;

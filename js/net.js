@@ -45,7 +45,17 @@ export class Net {
     if (!url) { this.goOffline(); return; }
     let opened = false;
     try { this.ws = new WebSocket(url); } catch { this.goOffline(); return; }
-    const fail = setTimeout(() => { if (!opened) { try { this.ws.close(); } catch { } this.goOffline(); } }, 3500);
+    // The first seconds of a visit are busy (shaders compiling, the town being built), which can delay
+    // the open event past a short timer. Only give up while the socket is still connecting after 15 s.
+    const started = performance.now();
+    let fail;
+    const check = () => {
+      if (opened || this.ws.readyState === 1) return;
+      if (this.ws.readyState === 0 && performance.now() - started < 15000) { fail = setTimeout(check, 1000); return; }
+      try { this.ws.close(); } catch { }
+      this.goOffline();
+    };
+    fail = setTimeout(check, 4000);
     this.ws.onopen = () => {
       opened = true; clearTimeout(fail);
       this.online = true;
@@ -106,6 +116,7 @@ class LocalWorld {
     for (const t of s.terrain) lines.push('T ' + t);
     for (const [id, o] of Object.entries(s.objects)) lines.push(`O ${id}\t${o.owner}\t${o.x}\t${o.z}\t${o.json}`);
     for (const c of s.chat) lines.push(c);
+    for (const n of s.notes || []) lines.push(n);
     lines.push('B end');
     setTimeout(() => { for (const l of lines) this.emit(l); }, 0);
   }
@@ -120,6 +131,7 @@ class LocalWorld {
       case 'R': delete s.plots[rest.trim()]; this.emit('R ' + rest.trim()); break;
       case 'C': { const l = `C 1\t${this.uid}\t${Date.now()}\t${rest}`; s.chat.push(l); if (s.chat.length > 150) s.chat.shift(); this.emit(l); break; }
       case 'W': this.emit('E That player is offline.'); return;
+      case 'K': { const l = `K 1\t${this.uid}\t${Date.now()}\t${rest}`; (s.notes ||= []).push(l); if (s.notes.length > 60) s.notes.shift(); this.emit(l); break; }
       default: return;
     }
     this.save();

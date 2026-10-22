@@ -12,7 +12,7 @@ import { buildMaterial, loadModel, MATERIALS } from './assets.js';
 import { generateHouse, STYLES } from './houses.js';
 import { LAYERS } from './terrain.js';
 import { SPECIES } from './trees.js';
-import { PLOT, plotKey, plotOrigin, HALF, SEA } from './config.js';
+import { PLOT, plotKey, plotOrigin, HALF, SEA, inTown } from './config.js';
 
 export const MODES = [
   { id: 'explore', label: 'Explore', key: '1', icon: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm4.2 5.8-2.1 6.3-6.3 2.1 2.1-6.3z' },
@@ -50,6 +50,10 @@ export class BuildTools {
     this.nature = { set: new Set(['oak', 'maple', 'birch']), density: 0.5, r: 10, erase: false };
     this.house = { style: 'cottage', floors: 1, roof: '', furnish: true, fp: null };
     this.landSel = null;
+    this.multi = new Set();       // Shift+click multi-selection (record ids)
+    this.extraOutlines = [];
+    this.query = '';
+    this.favs = new Set(game.store.get('favs', []));
     this.thumbs = new Map();
     this.thumbQueue = [];
 
@@ -117,6 +121,11 @@ export class BuildTools {
       this.down = { x: e.clientX, y: e.clientY };
       this.mouse = { clientX: e.clientX, clientY: e.clientY };
       if (this.mode === 'terrain' || this.mode === 'nature') { this.painting = true; this.paintClock = 1; this.strokeWarned = false; this.flattenY = null; }
+      // walls, fences and railings: press and drag to draw a whole run of them
+      if (this.mode === 'build' && this.item && ITEMS[this.item].snap === 'edge') {
+        const pl = this.placementFor(this.g.rayFromEvent(e), ITEMS[this.item], this.ry, this.scale);
+        if (pl) this.line = { start: pl, recs: [] };
+      }
       if (this.mode === 'house') {
         const p = this.g.terrain.raycast(this.g.rayFromEvent(e));
         if (p) this.house.drag = { a: p.clone(), b: p.clone() };
@@ -131,8 +140,42 @@ export class BuildTools {
         this.finishFootprint(moved < 6);
         return;
       }
+      const line = this.line;
+      this.line = null;
+      if (line && line.recs.length > 1) { this.placeLine(line); return; }
       if (moved < 6 && e.target === el) this.click(e);
     });
+  }
+
+  // the run of wall pieces from where the drag started to the cursor, along whichever axis is longer
+  lineRecs(start, ray) {
+    const it = ITEMS[this.item];
+    const pl = this.placementFor(ray, it, this.ry, this.scale);
+    if (!pl) return [];
+    const dx = pl.x - start.x, dz = pl.z - start.z;
+    const alongX = Math.abs(dx) >= Math.abs(dz);
+    const len = itemSize(it)[0] * this.scale[0];
+    const ry = alongX ? 0 : Math.PI / 2;
+    // re-snap the start for the chosen direction so pieces join edge to edge
+    const [sx, sz] = this.snapXZ(it, start.x, start.z, ry, this.scale);
+    const n = Math.min(40, Math.round(Math.abs(alongX ? pl.x - sx : pl.z - sz) / len) + 1);
+    const sgn = Math.sign(alongX ? dx : dz) || 1;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const x = alongX ? sx + sgn * i * len : sx, z = alongX ? sz : sz + sgn * i * len;
+      out.push({ t: it.id, x, z, y: this.surfaceY(x, z, start.y - this.lift + 0.05) + this.lift, ry, s: [...this.scale], m: this.mat || it.mat, c: this.tint || undefined });
+    }
+    return out;
+  }
+
+  placeLine(line) {
+    const recs = line.recs.filter((r) => this.g.canBuild(r.x, r.z));
+    if (recs.length < line.recs.length) this.deny(line.recs.find((r) => !this.g.canBuild(r.x, r.z)).x, line.recs.find((r) => !this.g.canBuild(r.x, r.z)).z);
+    if (!recs.length) return;
+    this.commit(recs.map((r) => ({ ...r, id: this.g.newId() })));
+    this.g.ui.sound('place');
+    this.g.event('place');
+    this.clearGhost();
   }
 
   bindKeys() {
@@ -167,6 +210,7 @@ export class BuildTools {
   }
 
   rotate(target, a) {
+    if (target === 'tool' && this.carry) { this.carry.ry = norm((this.carry.ry || 0) + a); return; }
     if (target === 'tool') { this.ry = norm(this.ry + a); this.renderPanel(true); return; }
     const r = this.g.objects.get(this.sel);
     if (!r || !this.g.canModify(r)) return;
@@ -190,6 +234,7 @@ export class BuildTools {
       case 'build': this.place(ray); break;
       case 'edit':
         if (this.carry) this.dropCarry(ray);
+        else if (e.shiftKey) this.toggleMulti(this.pickAny(ray));
         else this.select(this.pickAny(ray));
         break;
       case 'land': {
@@ -270,18 +315,21 @@ export class BuildTools {
     if (it.kind === 'part') rec.m = this.mat || it.mat;
     if (this.tint) rec.c = this.tint;
     if (it.kind === 'tree') { rec.sd = Math.floor(Math.random() * 3); rec.ry = Math.random() * Math.PI * 2; }
+    if (it.crop) { rec.pt = this.g.now(); rec.ry = Math.random() * Math.PI * 2; }
     this.commit([rec]);
     this.g.ui.sound('place');
+    this.g.event(it.crop ? 'plant' : 'place');
   }
 
   deny(x, z) {
+    if (inTown(x, z)) { this.g.ui.toast('This is the town square - it belongs to everyone. Build outside the town.', 'warn'); return; }
     const p = this.g.plotAt(x, z);
     this.g.ui.toast(p ? `This plot belongs to ${this.g.ownerName(p.owner)}${p.name ? ' (' + p.name + ')' : ''}` : 'You cannot build here', 'warn');
   }
 
   // apply a batch of record writes (new or changed), remembering how to undo it
   commit(recs, prevs) {
-    const undo = recs.map((r, i) => ({ id: r.id, prev: prevs ? { ...prevs[i] } : this.g.objects.get(r.id) ? { ...this.g.objects.get(r.id) } : null }));
+    const undo = recs.map((r, i) => ({ id: r.id, prev: prevs ? (prevs[i] ? { ...prevs[i] } : null) : this.g.objects.get(r.id) ? { ...this.g.objects.get(r.id) } : null }));
     for (const r of recs) this.g.putObject(r);
     this.undoStack.push(undo);
     if (this.undoStack.length > 60) this.undoStack.shift();
@@ -312,8 +360,10 @@ export class BuildTools {
   // ---------------------------------------------------------------- ghosts
   clearGhost() {
     if (this.ghost) { this.g.scene.remove(this.ghost); this.ghost.traverse((o) => { if (o.isInstancedMesh) o.dispose(); }); }
+    if (this.lineGhost) { this.g.scene.remove(this.lineGhost); this.lineGhost = null; }
     this.ghost = null; this.ghostKey = '';
     this.outline.visible = false;
+    for (const o of this.extraOutlines || []) o.visible = false;
   }
 
   // a single object's look (instanced with one instance so tints work with the shared materials)
@@ -362,11 +412,32 @@ export class BuildTools {
 
   select(id) {
     this.sel = id;
+    this.multi.clear();
+    for (const o of this.extraOutlines) o.visible = false;
     if (!id) this.outline.visible = false;
     this.renderPanel();
   }
 
+  // Shift+click: add or remove a piece from a multi-selection
+  toggleMulti(id) {
+    if (!id || this.isNatural(id) || !this.g.objects.get(id)) return;
+    if (!this.multi.size && this.sel && !this.isNatural(this.sel)) this.multi.add(this.sel);
+    if (this.multi.has(id)) this.multi.delete(id); else this.multi.add(id);
+    this.sel = this.multi.size ? [...this.multi][this.multi.size - 1] : null;
+    if (this.multi.size === 1) { this.sel = [...this.multi][0]; this.multi.clear(); }
+    this.renderPanel();
+  }
+
+  // ids the selection acts on: the multi-selection, or the single selected piece
+  selectedIds() { return this.multi.size ? [...this.multi] : this.sel && !this.isNatural(this.sel) ? [this.sel] : []; }
+
   deleteSelection() {
+    if (this.multi.size) {
+      const n = this.removeMany([...this.multi]);
+      this.select(null);
+      this.g.ui.toast(`Removed ${n} pieces (Ctrl+Z brings them back)`);
+      return;
+    }
     const id = this.sel;
     if (!id) return;
     if (this.isNatural(id)) { this.cutTree(id); this.select(null); return; }
@@ -397,16 +468,63 @@ export class BuildTools {
   startCarry(group) {
     const r = this.g.objects.get(this.sel);
     if (!r || !this.g.canModify(r)) return;
-    const ids = group && r.g ? this.g.objects.groupIds(r.g).filter((id) => this.g.canModify(this.g.objects.get(id))) : [r.id];
+    let ids = group && r.g ? this.g.objects.groupIds(r.g) : this.multi.size ? [...this.multi] : [r.id];
+    ids = ids.filter((id) => this.g.canModify(this.g.objects.get(id)));
     this.carry = { ids, anchor: { ...r }, recs: ids.map((id) => ({ ...this.g.objects.get(id) })), ry: 0 };
-    this.g.ui.toast(ids.length > 1 ? `Moving ${ids.length} pieces - click to drop, Esc to cancel` : 'Moving - click to drop, R/Q/E rotate, Esc cancels');
+    this.g.ui.toast(ids.length > 1 ? `Moving ${ids.length} pieces - click to drop, R turns them, Esc cancels` : 'Moving - click to drop, R/Q/E rotate, Esc cancels');
   }
   cancelCarry() {
     const c = this.carry;
     this.carry = null;
     // the originals were only hidden locally while carried; put them back as they were
-    if (c && c.hidden) for (const r of c.recs) this.g.objects.set({ ...r });
+    if (c && c.hidden && !c.isNew) for (const r of c.recs) this.g.objects.set({ ...r });
     this.clearGhost();
+    this.renderPanel();
+  }
+
+  // ---------------------------------------------------------------- blueprints
+  // A blueprint is a saved set of pieces relative to its first piece. They live in this browser and can
+  // be shared as a text code that anyone can paste in.
+  blueprints() { return this.g.store.get('blueprints', []); }
+
+  saveBlueprint(ids, name) {
+    const recs = ids.map((id) => this.g.objects.get(id)).filter((r) => r && r.t !== 'cut');
+    if (!recs.length) return;
+    const a = recs[0];
+    const items = recs.map((r) => {
+      const o = { t: r.t, dx: +(r.x - a.x).toFixed(3), dy: +(r.y - a.y).toFixed(3), dz: +(r.z - a.z).toFixed(3), ry: +(r.ry || 0).toFixed(4) };
+      if (r.s && r.s.some((v) => v !== 1)) o.s = r.s;
+      for (const k of ['m', 'c', 'sd', 'open']) if (r[k] !== undefined) o[k] = r[k];
+      return o;
+    });
+    const list = this.blueprints();
+    list.unshift({ name: name || `Blueprint ${list.length + 1}`, items, at: Date.now() });
+    this.g.store.set('blueprints', list.slice(0, 40));
+    this.g.ui.toast(`Saved "${list[0].name}" (${items.length} pieces). Find it in Build > Blueprints.`);
+  }
+
+  bpCode(bp) { return 'RELIVE1:' + btoa(unescape(encodeURIComponent(JSON.stringify(bp)))); }
+  importBlueprint(code) {
+    try {
+      const bp = JSON.parse(decodeURIComponent(escape(atob(code.trim().replace(/^RELIVE1:/, '')))));
+      if (!Array.isArray(bp.items) || !bp.items.every((i) => ITEMS[i.t])) throw new Error('bad');
+      const list = this.blueprints();
+      list.unshift({ ...bp, at: Date.now() });
+      this.g.store.set('blueprints', list.slice(0, 40));
+      this.g.ui.toast(`Imported "${bp.name}"`);
+      this.renderPanel();
+    } catch { this.g.ui.toast('That code is not a ReLive blueprint', 'warn'); }
+  }
+
+  // pick a blueprint up like a carried build: new pieces follow the cursor until you click to drop them
+  placeBlueprint(i) {
+    const bp = this.blueprints()[i];
+    if (!bp) return;
+    const gid = 'b' + this.g.newId();
+    const recs = bp.items.map((o) => ({ id: this.g.newId(), t: o.t, x: o.dx, y: o.dy, z: o.dz, ry: o.ry, s: o.s || [1, 1, 1], m: o.m, c: o.c, sd: o.sd, open: o.open, g: bp.items.length > 1 ? gid : undefined, pt: ITEMS[o.t].crop ? this.g.now() : undefined }));
+    this.setMode('edit');
+    this.carry = { ids: [], anchor: { ...recs[0] }, recs, ry: 0, isNew: true };
+    this.g.ui.toast(`Placing "${bp.name}" - click to drop, R turns it, Esc cancels`);
     this.renderPanel();
   }
   dropCarry(ray) {
@@ -418,8 +536,11 @@ export class BuildTools {
     for (const r of out) if (!this.g.canBuild(r.x, r.z)) { this.deny(r.x, r.z); return; }
     this.carry = null;
     this.clearGhost();
-    this.commit(out.map(({ _pool, ...r }) => r), c.recs);
+    this.commit(out.map(({ _pool, ...r }) => r), c.isNew ? out.map(() => null) : c.recs);
+    if (c.isNew) { this.g.ui.sound('place'); this.g.event('place'); }
     this.sel = out[0].id;
+    this.multi.clear();
+    if (out.length > 1 && !c.isNew) for (const r of out) this.multi.add(r.id);
     this.renderPanel();
   }
   // move (and spin, for groups, about the anchor) every carried record to follow the anchor's new spot
@@ -694,6 +815,21 @@ export class BuildTools {
         this.ghostKey = key;
         this.g.scene.add(this.ghost);
       }
+      // dragging out a run of walls: one preview per piece
+      if (this.line) {
+        const recs = this.lineRecs(this.line.start, ray);
+        this.line.recs = recs;
+        if (recs.length > 1) {
+          if (!this.lineGhost) { this.lineGhost = new THREE.Group(); this.g.scene.add(this.lineGhost); }
+          while (this.lineGhost.children.length < recs.length) this.lineGhost.add(this.ghostObject({ t: this.item, m: this.mat || it.mat, c: this.tint }));
+          this.lineGhost.children.forEach((o, i) => { o.visible = i < recs.length; if (recs[i]) this.setTransform(o, recs[i]); });
+          this.ghost.visible = false;
+          this.outline.visible = false;
+          this.g.ui.hint(`${recs.length} × ${it.label.toLowerCase()} - release to build them all`);
+          return;
+        }
+      }
+      if (this.lineGhost) { this.g.scene.remove(this.lineGhost); this.lineGhost = null; }
       const pl = this.placementFor(ray, it, this.ry, this.scale);
       if (!pl) { this.ghost.visible = false; return; }
       const r = { t: this.item, x: pl.x, y: pl.y, z: pl.z, ry: pl.ry ?? this.ry, s: this.scale };
@@ -721,7 +857,18 @@ export class BuildTools {
             this.showOutline(out[0], out.every((r) => this.g.canBuild(r.x, r.z)));
           }
         }
+      } else if (this.multi.size > 1) {
+        // one outline per selected piece
+        const ids = [...this.multi];
+        while (this.extraOutlines.length < ids.length) { const o = this.outline.clone(); o.material = this.outline.material; this.g.scene.add(o); this.extraOutlines.push(o); }
+        this.extraOutlines.forEach((o, i) => {
+          const r = ids[i] && this.g.objects.get(ids[i]);
+          o.visible = !!r;
+          if (r) { this.showOutline(r, true); o.position.copy(this.outline.position); o.rotation.copy(this.outline.rotation); o.scale.copy(this.outline.scale); }
+        });
+        this.outline.visible = false;
       } else if (this.sel) {
+        for (const o of this.extraOutlines) o.visible = false;
         const r = this.g.objects.get(this.sel);
         const t = !r && this.g.trees.items.get(this.sel);
         if (r) this.showOutline(r, this.g.canModify(r));
@@ -835,12 +982,31 @@ export class BuildTools {
   }
 
   panelBuild() {
-    const cats = CATEGORIES.map((c) => `<button class="tab ${c.id === this.cat ? 'on' : ''}" data-act="cat" data-v="${c.id}">${c.label}</button>`).join('');
-    const items = Object.values(ITEMS).filter((it) => it.cat === this.cat).map((it) => {
+    const cats = [{ id: 'fav', label: '★ Favourites' }, ...CATEGORIES, { id: 'bp', label: 'Blueprints' }]
+      .map((c) => `<button class="tab ${c.id === this.cat && !this.query ? 'on' : ''}" data-act="cat" data-v="${c.id}">${c.label}</button>`).join('');
+    return `<h3>Build</h3>
+      <input class="search" data-in="search" placeholder="Search everything… (sofa, lamp, roof)" value="${esc(this.query)}" autocomplete="off">
+      <div class="tabs">${cats}</div><div class="cat-grid">${this.gridHtml()}</div><div class="readout"></div>`;
+  }
+
+  gridHtml() {
+    if (this.cat === 'bp' && !this.query) return this.blueprintsHtml();
+    const q = this.query.trim().toLowerCase();
+    const list = Object.values(ITEMS).filter((it) => it.cat !== 'hidden' && (q ? it.label.toLowerCase().includes(q) || it.cat.includes(q) : this.cat === 'fav' ? this.favs.has(it.id) : it.cat === this.cat));
+    if (!list.length) return `<p class="muted span">${q ? 'Nothing matches that.' : this.cat === 'fav' ? 'Star items (☆ on their card) to collect them here.' : ''}</p>`;
+    return list.map((it) => {
       const th = this.thumb(it.id);
-      return `<button class="card ${it.id === this.item ? 'on' : ''}" data-act="item" data-v="${it.id}" title="${esc(it.label)}"><span class="th" data-thumb="${it.id}" style="${th ? `background-image:url(${th})` : ''}"></span><span class="lb">${esc(it.label)}</span></button>`;
+      return `<button class="card ${it.id === this.item ? 'on' : ''}" data-act="item" data-v="${it.id}" title="${esc(it.label)}"><span class="th" data-thumb="${it.id}" style="${th ? `background-image:url(${th})` : ''}"></span><span class="lb">${esc(it.label)}</span><span class="star ${this.favs.has(it.id) ? 'on' : ''}" data-act="fav" data-v="${it.id}" title="Favourite">${this.favs.has(it.id) ? '★' : '☆'}</span></button>`;
     }).join('');
-    return `<h3>Build</h3><div class="tabs">${cats}</div><div class="cat-grid">${items}</div><div class="readout"></div>`;
+  }
+
+  blueprintsHtml() {
+    const list = this.blueprints();
+    return `<div class="span">
+      <p class="muted">Save any build as a blueprint (select it with Select & edit, then <b>Save as blueprint</b>), place copies of it anywhere, or share it with a code.</p>
+      ${list.length ? `<div class="list">${list.map((b, i) => `<div class="bp-row"><span><b>${esc(b.name)}</b><small class="muted">${b.items.length} pieces</small></span>
+        <button class="chip" data-act="bpplace" data-v="${i}">Place</button><button class="chip" data-act="bpshare" data-v="${i}">Share</button><button class="chip" data-act="bpdel" data-v="${i}">×</button></div>`).join('')}</div>` : '<p class="muted">No blueprints yet.</p>'}
+      <h4>Import a code</h4><div class="row"><input class="search" data-in="bpcode" placeholder="RELIVE1:…"><button class="chip" data-act="bpimport">Import</button></div></div>`;
   }
 
   updateBuildReadout(el) {
@@ -862,9 +1028,15 @@ export class BuildTools {
   }
 
   panelEdit() {
-    if (this.carry) return `<h3>Moving</h3><p class="muted">Click to drop it. <b>R</b> / <b>Q</b> / <b>E</b> turn it, <b>[ ]</b> lift, <b>Esc</b> cancels.</p><button class="ghost" data-act="cancelcarry">Cancel</button>`;
+    if (this.carry) return `<h3>${this.carry.isNew ? 'Placing a blueprint' : 'Moving'}</h3><p class="muted">Click to drop it. <b>R</b> / <b>Q</b> / <b>E</b> turn it, <b>[ ]</b> lift, <b>Esc</b> cancels.</p><button class="ghost" data-act="cancelcarry">Cancel</button>`;
+    if (this.multi.size > 1) {
+      return `<h3>${this.multi.size} pieces selected</h3>
+        <p class="muted">Shift+click adds or removes pieces. Move, delete or save them together.</p>
+        <div class="btn-row"><button data-act="move">Move them</button><button class="danger" data-act="delete">Delete them</button></div>
+        <div class="btn-row"><button class="ghost" data-act="bpsave">Save as blueprint</button><button class="ghost" data-act="clearsel">Clear selection</button></div>`;
+    }
     const id = this.sel;
-    if (!id) return `<h3>Select & edit</h3><p class="muted">Click any object, tree or part of a building to select it. Then move it (<b>G</b>), turn it (<b>R</b>), delete it (<b>Del</b>), copy it (<b>Ctrl+D</b>) or change its finish. <b>Ctrl+Z</b> undoes.</p>`;
+    if (!id) return `<h3>Select & edit</h3><p class="muted">Click any object, tree or part of a building to select it. <b>Shift+click</b> selects several. Then move it (<b>G</b>), turn it (<b>R</b>), delete it (<b>Del</b>), copy it (<b>Ctrl+D</b>) or change its finish. <b>Ctrl+Z</b> undoes.</p>`;
     if (this.isNatural(id)) {
       const t = this.g.trees.items.get(id);
       const sp = t && this.g.trees.variants[t.vi].sp;
@@ -885,7 +1057,8 @@ export class BuildTools {
           ? ['Width', 'Height', 'Depth'].map((l, i) => `<label class="slider">${l}<input type="range" min="0.25" max="4" step="0.25" value="${s[i]}" data-in="sscale${i}"><span>${s[i]}×</span></label>`).join('')
           : `<label class="slider">Scale<input type="range" min="0.3" max="3" step="0.05" value="${s[0]}" data-in="suscale"><span>${s[0]}×</span></label>`}
         <div class="btn-row"><button data-act="move">Move</button><button class="ghost" data-act="srot">Turn 90°</button><button class="ghost" data-act="dup">Copy</button><button class="danger" data-act="delete">Delete</button></div>
-        ${grp > 1 ? `<div class="btn-row"><button class="ghost" data-act="movegroup">Move whole build</button><button class="danger ghost" data-act="delgroup">Delete whole build</button></div>` : ''}`
+        ${grp > 1 ? `<div class="btn-row"><button class="ghost" data-act="movegroup">Move whole build</button><button class="danger ghost" data-act="delgroup">Delete whole build</button></div>` : ''}
+        <div class="btn-row"><button class="ghost" data-act="bpsave">${grp > 1 ? 'Save whole build as blueprint' : 'Save as blueprint'}</button></div>`
       : `<p class="warn-box">You can look, but only the builder${this.g.plotAt(r.x, r.z) ? ' or the plot owner' : ''} can change it.</p>`}`;
   }
 
@@ -953,7 +1126,30 @@ export class BuildTools {
     switch (b.dataset.act) {
       case 'mode': this.setMode(v); break;
       case 'emote': g.emote(v); break;
-      case 'cat': this.cat = v; this.renderPanel(); break;
+      case 'cat': this.cat = v; this.query = ''; this.renderPanel(); break;
+      case 'fav': {
+        e.stopPropagation();
+        this.favs.has(v) ? this.favs.delete(v) : this.favs.add(v);
+        g.store.set('favs', [...this.favs]);
+        const grid = this.panel().querySelector('.cat-grid'); if (grid) grid.innerHTML = this.gridHtml();
+        return;
+      }
+      case 'bpplace': this.placeBlueprint(+v); break;
+      case 'bpshare': {
+        const code = this.bpCode(this.blueprints()[+v]);
+        navigator.clipboard?.writeText(code).then(() => g.ui.toast('Blueprint code copied - paste it to a friend'), () => prompt('Copy this blueprint code:', code));
+        break;
+      }
+      case 'bpdel': { const list = this.blueprints(); list.splice(+v, 1); g.store.set('blueprints', list); this.renderPanel(); break; }
+      case 'bpimport': this.importBlueprint(this.panel().querySelector('[data-in=bpcode]').value); break;
+      case 'bpsave': {
+        const r = g.objects.get(this.sel);
+        const ids = this.multi.size ? [...this.multi] : r && r.g ? g.objects.groupIds(r.g) : this.selectedIds();
+        const name = prompt('Name this blueprint:', r ? (r.g && ids.length > 20 ? 'My house' : ITEMS[r.t].label) : 'My build');
+        if (name !== null) this.saveBlueprint(ids, name.trim().slice(0, 40));
+        break;
+      }
+      case 'clearsel': this.select(null); break;
       case 'item': this.item = v; this.mat = null; this.scale = [1, 1, 1]; this.lift = 0; this.ry = ITEMS[v].kind === 'part' ? Math.round(this.ry / (Math.PI / 2)) * Math.PI / 2 : this.ry; this.renderPanel(); break;
       case 'mat': this.mat = v; this.renderPanel(true); break;
       case 'notint': this.tint = null; this.renderPanel(true); break;
@@ -1006,6 +1202,8 @@ export class BuildTools {
     const t = e.target, k = t.dataset.in, g = this.g;
     if (!k) return;
     const span = t.parentElement.querySelector('span');
+    if (k === 'search') { this.query = t.value; const grid = this.panel().querySelector('.cat-grid'); if (grid) grid.innerHTML = this.gridHtml(); return; }
+    if (k === 'bpcode') return;
     if (k === 'tint') { this.tint = t.value; this.ghostKey = ''; return; }
     if (k.startsWith('scale')) { this.scale[+k.slice(5)] = +t.value; if (span) span.textContent = t.value + '×'; return; }
     if (k === 'uscale') { this.scale = [+t.value, +t.value, +t.value]; if (span) span.textContent = t.value + '×'; return; }
