@@ -98,6 +98,11 @@ export class BuildTools {
     if (m === 'land') this.rebuildPlotOverlay(true);
     this.g.ui.onMode(m);
     this.renderPanel();
+    // open the house tool with a house already outlined on free ground in view, ready to build
+    if (m === 'house' && !this.house.fp && this.g.ready) {
+      const at = p.freeCam ? (p.focusGoal || p.focus) : p.pos;
+      this.proposeFootprint(at.x, at.z);
+    }
   }
 
   panel() { return document.getElementById('tool-panel'); }
@@ -440,17 +445,46 @@ export class BuildTools {
   finishFootprint(isClick) {
     const d = this.house.drag;
     this.house.drag = null;
-    let x0, x1, z0, z1;
-    if (isClick) {
-      const cx = Math.round(d.a.x / 4) * 4, cz = Math.round(d.a.z / 4) * 4;
-      x0 = cx - 6; x1 = cx + 6; z0 = cz - 4; z1 = cz + 4;
-    } else {
-      x0 = Math.floor(Math.min(d.a.x, d.b.x) / 4) * 4; x1 = Math.ceil(Math.max(d.a.x, d.b.x) / 4) * 4;
-      z0 = Math.floor(Math.min(d.a.z, d.b.z) / 4) * 4; z1 = Math.ceil(Math.max(d.a.z, d.b.z) / 4) * 4;
-      if (x1 - x0 < 8) x1 = x0 + 8;
-      if (z1 - z0 < 8) z1 = z0 + 8;
-      x1 = Math.min(x1, x0 + 24); z1 = Math.min(z1, z0 + 24);
+    if (isClick) { this.proposeFootprint(d.a.x, d.a.z, false); return; }
+    let x0 = Math.floor(Math.min(d.a.x, d.b.x) / 4) * 4, x1 = Math.ceil(Math.max(d.a.x, d.b.x) / 4) * 4;
+    let z0 = Math.floor(Math.min(d.a.z, d.b.z) / 4) * 4, z1 = Math.ceil(Math.max(d.a.z, d.b.z) / 4) * 4;
+    if (x1 - x0 < 8) x1 = x0 + 8;
+    if (z1 - z0 < 8) z1 = z0 + 8;
+    x1 = Math.min(x1, x0 + 24); z1 = Math.min(z1, z0 + 24);
+    this.setFootprint(x0, x1, z0, z1);
+  }
+
+  // A 12 × 8 m footprint centred near (x, z). With `findFree`, step outward until it lands on empty
+  // ground, so the outline that appears when the tool opens never sits on top of an existing build.
+  proposeFootprint(x, z, findFree = true) {
+    const at = (cx, cz) => ({ x0: cx - 6, x1: cx + 6, z0: cz - 4, z1: cz + 4 });
+    const cx0 = Math.round(x / 4) * 4, cz0 = Math.round(z / 4) * 4;
+    let f = at(cx0, cz0);
+    if (findFree) {
+      search: for (let ring = 1; ring <= 6 && this.footprintBlocked(f); ring++) {
+        for (let k = 0; k < ring * 8; k++) {
+          const a = (k / (ring * 8)) * Math.PI * 2;
+          const c = at(cx0 + Math.round((Math.cos(a) * ring * 16) / 4) * 4, cz0 + Math.round((Math.sin(a) * ring * 12) / 4) * 4);
+          if (!this.footprintBlocked(c)) { f = c; break search; }
+        }
+      }
     }
+    this.setFootprint(f.x0, f.x1, f.z0, f.z1);
+  }
+
+  // something already built (not trees or plants) inside the footprint, or land we may not build on
+  footprintBlocked(f) {
+    for (const [x, z] of [[f.x0 + 0.1, f.z0 + 0.1], [f.x1 - 0.1, f.z0 + 0.1], [f.x0 + 0.1, f.z1 - 0.1], [f.x1 - 0.1, f.z1 - 0.1]]) if (!this.g.canBuild(x, z)) return true;
+    const cx = (f.x0 + f.x1) / 2, cz = (f.z0 + f.z1) / 2;
+    for (const id of this.g.objects.near(cx, cz, Math.hypot(f.x1 - f.x0, f.z1 - f.z0) / 2 + 2)) {
+      const r = this.g.objects.get(id), it = r && ITEMS[r.t];
+      if (!it || it.kind === 'tree' || it.cat === 'nature') continue;
+      if (r.x > f.x0 - 1 && r.x < f.x1 + 1 && r.z > f.z0 - 1 && r.z < f.z1 + 1) return true;
+    }
+    return false;
+  }
+
+  setFootprint(x0, x1, z0, z1) {
     // face the door toward the camera
     const cam = this.g.camera.position, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
     const dx = cam.x - cx, dz = cam.z - cz;
@@ -486,10 +520,25 @@ export class BuildTools {
 
   buildHouse() {
     const f = this.house.fp;
-    if (!f) return;
+    if (!f) {
+      // nothing outlined yet: put one on free ground in view, and let the player confirm it
+      const p = this.g.player, at = p.freeCam ? p.focus : p.pos;
+      this.proposeFootprint(at.x, at.z);
+      this.g.ui.toast('Here is a free spot - press Build again, or click the ground to move it');
+      return;
+    }
     for (const [x, z] of [[f.x0 + 0.1, f.z0 + 0.1], [f.x1 - 0.1, f.z0 + 0.1], [f.x0 + 0.1, f.z1 - 0.1], [f.x1 - 0.1, f.z1 - 0.1]]) {
       if (!this.g.canBuild(x, z)) { this.deny(x, z); return; }
     }
+    if (this.footprintBlocked(f)) { this.g.ui.toast('Something is already built there - click an empty spot on the ground', 'warn'); return; }
+    // trees standing where the house goes are felled (natural ones get a cut record, planted ones removed)
+    const felled = [];
+    for (const t of this.g.trees.near((f.x0 + f.x1) / 2, (f.z0 + f.z1) / 2, Math.hypot(f.x1 - f.x0, f.z1 - f.z0) / 2 + 3)) {
+      if (t.x < f.x0 - 1.5 || t.x > f.x1 + 1.5 || t.z < f.z0 - 1.5 || t.z > f.z1 + 1.5) continue;
+      if (this.isNatural(t.id)) felled.push({ id: this.g.newId(), t: 'cut', ref: t.id, x: t.x, y: t.y, z: t.z });
+      else if (this.g.canModify(this.g.objects.get(t.id))) this.g.deleteObject(t.id);
+    }
+    if (felled.length) for (const c of felled) this.g.putObject(c);
     const recs = this.houseRecs();
     const baseY = recs[0].y;
     // level the ground under it so the foundation sits cleanly
@@ -844,13 +893,13 @@ export class BuildTools {
     const st = Object.entries(STYLES).map(([k, s]) => `<button class="card wide ${k === this.house.style ? 'on' : ''}" data-act="hstyle" data-v="${k}"><span class="lb">${esc(s.label)}</span></button>`).join('');
     const f = this.house.fp;
     return `<h3>House generator</h3>
-      <p class="muted">${f ? `Footprint ${f.x1 - f.x0} × ${f.z1 - f.z0} m, door facing the camera.` : 'Drag a rectangle on the ground (8-24 m a side), or just click for a 12 × 8 m house.'}</p>
+      <p class="muted">${f ? `The outline shows where it goes: ${f.x1 - f.x0} × ${f.z1 - f.z0} m, door facing the camera. Click the ground to move it, or drag a rectangle (8-24 m a side) to resize.` : 'Click the ground where the house should go, or drag a rectangle (8-24 m a side).'}</p>
       <p class="muted">Camera: <b>W A S D</b> moves over the land, right-drag turns, scroll zooms, <b>Q</b>/<b>E</b> orbit.</p>
       <h4>Style</h4><div class="cards2">${st}</div>
       <h4>Storeys</h4><div class="chip-row">${[1, 2, 3].map((n) => `<button class="chip ${n === this.house.floors ? 'on' : ''}" data-act="hfloors" data-v="${n}">${n}</button>`).join('')}</div>
       <h4>Roof</h4><div class="chip-row">${[['', 'Style default'], ['gable', 'Gable'], ['hip', 'Hip'], ['flat', 'Flat']].map(([k, l]) => `<button class="chip ${k === this.house.roof ? 'on' : ''}" data-act="hroof" data-v="${k}">${l}</button>`).join('')}</div>
       <label class="check"><input type="checkbox" data-in="hfurnish" ${this.house.furnish ? 'checked' : ''}> Furnish it (sofa, table, bed, lights, path)</label>
-      <div class="btn-row"><button ${f ? '' : 'disabled'} data-act="hbuild">Build this house</button>${f ? '<button class="ghost" data-act="hclear">Clear</button>' : ''}</div>`;
+      <div class="btn-row"><button data-act="hbuild">${f ? 'Build this house' : 'Place a house'}</button>${f ? '<button class="ghost" data-act="hmove">Find a free spot</button>' : ''}</div>`;
   }
 
   panelTerrain() {
@@ -932,6 +981,7 @@ export class BuildTools {
       case 'hfloors': this.house.floors = +v; this.refreshHouseGhost(); this.renderPanel(); break;
       case 'hroof': this.house.roof = v; this.refreshHouseGhost(); this.renderPanel(); break;
       case 'hbuild': this.buildHouse(); break;
+      case 'hmove': { const f = this.house.fp; this.house.fp = null; this.proposeFootprint((f.x0 + f.x1) / 2 + 16, (f.z0 + f.z1) / 2); break; }
       case 'hclear': this.house.fp = null; this.clearGhost(); this.renderPanel(); break;
       case 'ttool': this.brush.tool = v; this.renderPanel(); break;
       case 'tlayer': this.brush.layer = +v; this.renderPanel(); break;
