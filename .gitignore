@@ -1,0 +1,3 @@
+# the live world save is player data, not source
+data/
+*.tmp

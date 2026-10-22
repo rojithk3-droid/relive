@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReLive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head>
+<body>
+<div id="app">
+  <canvas id="view"></canvas>
+
+  <header id="topbar">
+    <div class="brand"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg>ReLive</div>
+    <span id="status" class="pill" data-state="reconnecting">Connecting…</span>
+    <span id="where" class="where"></span>
+    <div class="spacer"></div>
+    <button id="btn-cam" title="Free camera (V): fly the view around buildings"><svg viewBox="0 0 24 24"><path d="M3 8a2 2 0 0 1 2-2h2l1.5-2h7L17 6h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.5"/></svg></button>
+    <button id="btn-people" title="People (P)"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6M16 11a3 3 0 1 0 0-6M21 20c0-3-1.8-5.2-4.4-5.8"/></svg></button>
+    <button id="btn-map" title="World map (M)"><svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14"/></svg></button>
+    <button id="btn-settings" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.6 14H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 3.6V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1.3z"/></svg></button>
+    <button id="btn-help" title="Help (H)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/></svg></button>
+  </header>
+
+  <nav id="modes"></nav>
+
+  <aside id="side">
+    <button id="side-toggle" title="Hide / show panel (Tab)"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+    <div id="tool-panel"></div>
+  </aside>
+
+  <div id="minimap-wrap">
+    <canvas id="minimap" width="176" height="176" title="Open the world map (M)"></canvas>
+    <div id="clock">--:--</div>
+  </div>
+
+  <section id="chat">
+    <div class="chat-head">
+      <button class="ctab on" data-tab="all">All</button><button class="ctab" data-tab="near">Nearby</button><button class="ctab" data-tab="whisper">Whispers</button>
+      <span id="chat-unread" style="display:none">0</span>
+      <button id="chat-hide" title="Hide chat"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+    </div>
+    <div id="chat-log"></div>
+    <input id="chat-input" maxlength="400" placeholder="Press Enter to chat · / for commands" autocomplete="off">
+  </section>
+  <button id="chat-open" title="Open chat (Enter)"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg><span id="chat-open-badge" style="display:none">0</span></button>
+
+  <div id="hint"></div>
+  <div id="cam-badge"><b>Free camera</b> <kbd>W A S D</kbd> move · right-drag turn · middle-drag pan · wheel zoom · <kbd>Q</kbd><kbd>E</kbd> orbit · <button id="cam-exit">Back to avatar (V)</button></div>
+  <div id="toasts"></div>
+
+  <!-- floating panels -->
+  <section id="people" class="float">
+    <div class="float-head"><h3>People here</h3><button data-close>&times;</button></div>
+    <div id="people-list"></div>
+  </section>
+  <section id="card" class="float">
+    <div class="float-head"><span></span><button data-close>&times;</button></div>
+    <div class="body"></div>
+  </section>
+
+  <!-- modals -->
+  <section id="welcome" class="modal">
+    <div class="dialog">
+      <h2 id="w-title">Welcome to ReLive</h2>
+      <p class="intro muted">A shared island where everyone builds. Make a home, plant a forest, open a café, meet people. Everything you build stays, and everyone online sees it.</p>
+      <label class="field">Your name<input id="w-name" maxlength="24" placeholder="e.g. Rojith" autocomplete="off"></label>
+      <h4>Body</h4><div id="w-bodies" class="chip-row"></div>
+      <h4>Outfit colour</h4><div id="w-colors" class="swatches"></div>
+      <button id="w-go" class="big">Enter the world</button>
+    </div>
+  </section>
+
+  <section id="loading" class="modal">
+    <div class="dialog small"><div class="spinner"></div><p class="msg">Loading…</p></div>
+  </section>
+
+  <section id="settings" class="modal">
+    <div class="dialog"><div class="float-head"><h2>Settings</h2><button data-close>&times;</button></div><div class="body"></div></div>
+  </section>
+
+  <section id="map" class="modal">
+    <div class="dialog map-dialog">
+      <div class="float-head"><h2>World map</h2><span class="muted">Click anywhere on land to teleport</span><button data-close>&times;</button></div>
+      <div class="map-box"><canvas id="map-canvas"></canvas><div id="map-labels"></div></div>
+    </div>
+  </section>
+
+  <section id="help" class="modal">
+    <div class="dialog wide">
+      <div class="float-head"><h2>How to play</h2><button data-close>&times;</button></div>
+      <div class="help-grid">
+        <div><h4>Moving</h4>
+          <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · <kbd>Shift</kbd> run · <kbd>Space</kbd> jump / swim up</p>
+          <p><kbd>F</kbd> fly (<kbd>Space</kbd> up, <kbd>C</kbd> down)</p>
+          <p>Right-drag (or drag in Explore) to look · scroll to zoom · zoom all the way in for first person</p>
+          <p><kbd>V</kbd> free camera: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly the view, middle-drag pan, <kbd>Q</kbd>/<kbd>E</kbd> orbit (the House tool uses it automatically)</p>
+          <p><kbd>M</kbd> map and teleport · <kbd>P</kbd> people · <kbd>Tab</kbd> hide the panel</p></div>
+        <div><h4>Building</h4>
+          <p><kbd>1</kbd>–<kbd>7</kbd> switch tools: Explore, Build, Select, House, Landscape, Nature, Land</p>
+          <p><kbd>R</kbd> turn 90° · <kbd>Q</kbd>/<kbd>E</kbd> turn 15° · <kbd>[</kbd> <kbd>]</kbd> lift (Shift: 1 m) · <kbd>G</kbd> grid on/off</p>
+          <p>Select: <kbd>G</kbd> move · <kbd>Del</kbd> delete · <kbd>Ctrl</kbd>+<kbd>D</kbd> copy · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo</p>
+          <p>Walls snap to the edges of the 4 m grid; floors and roofs to its squares. Point at the top of a wall to start the next storey.</p></div>
+        <div><h4>Living here</h4>
+          <p><kbd>Enter</kbd> chat · <code>/w name msg</code> whisper · <code>/near msg</code> nearby only · <code>/me</code> actions</p>
+          <p><code>/wave /cheer /clap /point /dance /sit</code> · <code>/tp name</code> visit someone · <code>/home</code></p>
+          <p>Claim up to 6 plots in <b>Land</b>. Nobody else can build or reshape your plots unless you open them.</p>
+          <p>The day/night cycle is shared: one day lasts 40 minutes.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <div id="boot-error" class="modal"><div class="dialog"><h2>ReLive needs its server</h2><p>Open it by double-clicking <b>Play ReLive.cmd</b> in the relive folder, which starts the world server and opens <code>http://localhost:8799/</code>. Opening <code>index.html</code> directly from disk can't load the game.</p></div></div>
+</div>
+<script>
+  // classic script: runs even when modules can't load (opened from disk, very old browser)
+  if (location.protocol === 'file:') document.getElementById('boot-error').classList.add('show');
+  window.addEventListener('error', function (e) { if (/three|module|import/i.test(String(e.message))) document.getElementById('boot-error').classList.add('show'); });
+</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
