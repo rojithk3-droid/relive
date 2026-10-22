@@ -4,7 +4,17 @@ A shared 3D island that many people can be in at the same time. They can build a
 (houses, roads, gardens, forests, whole towns), reshape the land, own plots, and chat. Everything
 anyone builds is saved and everyone online sees it live.
 
-## Play
+## Play online
+
+**https://rojithk3-droid.github.io/relive/**
+
+GitHub Pages only hosts files; it can't run the world server. So the online link currently plays
+**solo**: everything works (building, houses, landscape, avatar), but your world is saved in your own browser
+and visitors don't see each other. To make the online link multiplayer, run `server/relive-server.ps1`
+somewhere the internet can reach (or behind a tunnel), then either set `WORLD_SERVER` in `js/config.js`
+or share the link with `?server=wss://your-server/ws` on the end.
+
+## Play on your PC (multiplayer)
 
 Double-click **Play ReLive.cmd**. It starts the world server and opens `http://localhost:8799/`.
 Keep the black server window open while you play.
